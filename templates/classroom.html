@@ -102,12 +102,47 @@
             </div>
 
             <!-- Schedules -->
-            {% if schedules %}
             <div class="card mt-4">
-                <div class="card-header">
+                <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>Horários de Aula</h5>
+                    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#scheduleFilters">
+                        <i class="fas fa-filter me-1"></i>Filtros
+                    </button>
+                </div>
+                <div class="collapse {{ 'show' if current_filters.shift or current_filters.day_of_week or current_filters.course_name else '' }}" id="scheduleFilters">
+                    <div class="card-body border-bottom">
+                        <form method="GET" class="row g-2">
+                            <div class="col-md-3">
+                                <select name="day_of_week" class="form-select form-select-sm">
+                                    <option value="">Todos os dias</option>
+                                    <option value="0" {{ 'selected' if current_filters.day_of_week == '0' else '' }}>Segunda</option>
+                                    <option value="1" {{ 'selected' if current_filters.day_of_week == '1' else '' }}>Terça</option>
+                                    <option value="2" {{ 'selected' if current_filters.day_of_week == '2' else '' }}>Quarta</option>
+                                    <option value="3" {{ 'selected' if current_filters.day_of_week == '3' else '' }}>Quinta</option>
+                                    <option value="4" {{ 'selected' if current_filters.day_of_week == '4' else '' }}>Sexta</option>
+                                    <option value="5" {{ 'selected' if current_filters.day_of_week == '5' else '' }}>Sábado</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <select name="shift" class="form-select form-select-sm">
+                                    <option value="">Todos os turnos</option>
+                                    <option value="morning" {{ 'selected' if current_filters.shift == 'morning' else '' }}>Manhã</option>
+                                    <option value="afternoon" {{ 'selected' if current_filters.shift == 'afternoon' else '' }}>Tarde</option>
+                                    <option value="fullday" {{ 'selected' if current_filters.shift == 'fullday' else '' }}>Integral</option>
+                                    <option value="night" {{ 'selected' if current_filters.shift == 'night' else '' }}>Noite</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <input type="text" name="course_name" class="form-control form-control-sm" placeholder="Nome do curso" value="{{ current_filters.course_name }}">
+                            </div>
+                            <div class="col-md-2 d-grid">
+                                <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
                 <div class="card-body">
+                    {% if schedules %}
                     <div class="table-responsive">
                         <table class="table table-striped">
                             <thead>
@@ -116,6 +151,7 @@
                                     <th>Turno</th>
                                     <th>Horário</th>
                                     <th>Curso</th>
+                                    <th>Datas</th>
                                     <th>Instrutor</th>
                                 </tr>
                             </thead>
@@ -134,28 +170,28 @@
                                     </td>
                                     <td>{{ schedule.start_time }} - {{ schedule.end_time }}</td>
                                     <td>{{ schedule.course_name }}</td>
+                                    <td>
+                                        {% if schedule.start_date and schedule.end_date %}
+                                            <small>{{ schedule.start_date.strftime('%d/%m/%Y') }} - {{ schedule.end_date.strftime('%d/%m/%Y') }}</small>
+                                        {% else %}
+                                            <span class="badge bg-light text-dark">Permanente</span>
+                                        {% endif %}
+                                    </td>
                                     <td>{{ schedule.instructor or 'Não informado' }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
                         </table>
                     </div>
-                </div>
-            </div>
-            {% else %}
-            <div class="card mt-4">
-                <div class="card-body text-center">
-                    <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
-                    <h5>Nenhum horário cadastrado</h5>
-                    <p class="text-muted">Esta sala não possui horários de aula cadastrados.</p>
-                    {% if session.admin_authenticated %}
-                    <a href="{{ url_for('schedule_management') }}" class="btn btn-primary">
-                        <i class="fas fa-plus me-2"></i>Cadastrar Horário
-                    </a>
+                    {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-calendar-times fa-2x text-muted mb-2"></i>
+                        <p class="text-muted">Nenhum horário encontrado com os filtros aplicados.</p>
+                        <a href="{{ url_for('classroom_detail', classroom_id=classroom.id) }}" class="btn btn-sm btn-link">Limpar filtros</a>
+                    </div>
                     {% endif %}
                 </div>
             </div>
-            {% endif %}
 
             <!-- Incident Reporting Section -->
             <div class="card mt-4">

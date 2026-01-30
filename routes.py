@@ -87,15 +87,29 @@ def classroom_detail(classroom_id):
     from datetime import datetime
     current_date = get_brazil_time().date()
     
+    # Get filters for classroom detail
+    shift_filter = request.args.get('shift', '')
+    day_filter = request.args.get('day_of_week', '')
+    course_filter = request.args.get('course_name', '')
+    
     classroom = Classroom.query.get_or_404(classroom_id)
     
     # Only show active schedules where courses haven't ended yet
-    schedules = Schedule.query.filter_by(classroom_id=classroom_id, is_active=True).filter(
+    query = Schedule.query.filter_by(classroom_id=classroom_id, is_active=True).filter(
         db.or_(
             Schedule.end_date == None,  # No end date specified
             Schedule.end_date >= current_date  # Course hasn't ended yet
         )
-    ).all()
+    )
+    
+    if shift_filter:
+        query = query.filter(Schedule.shift == shift_filter)
+    if day_filter:
+        query = query.filter(Schedule.day_of_week == int(day_filter))
+    if course_filter:
+        query = query.filter(Schedule.course_name.ilike(f'%{course_filter}%'))
+
+    schedules = query.order_by(Schedule.day_of_week, Schedule.shift).all()
     
     # Get incidents for this classroom using raw SQL to avoid SQLAlchemy column issues
     incidents = []
@@ -145,7 +159,15 @@ def classroom_detail(classroom_id):
         logging.error(f"Incident query error: {e}")
         incidents = []
     
-    return render_template('classroom.html', classroom=classroom, schedules=schedules, incidents=incidents)
+    return render_template('classroom.html', 
+                         classroom=classroom, 
+                         schedules=schedules, 
+                         incidents=incidents,
+                         current_filters={
+                             'shift': shift_filter,
+                             'day_of_week': day_filter,
+                             'course_name': course_filter
+                         })
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
