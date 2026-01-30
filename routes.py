@@ -1124,17 +1124,30 @@ def add_schedule():
         for day in days:
             day_int = int(day)
             
-            # Check if schedule already exists for this slot
-            existing_schedule = Schedule.query.filter_by(
+            # Check for overlaps taking dates into account
+            existing_schedules = Schedule.query.filter_by(
                 classroom_id=classroom_id,
                 day_of_week=day_int,
                 shift=shift,
                 is_active=True
-            ).first()
+            ).all()
             
-            print(f"DEBUG: Day {day_int}, existing: {existing_schedule is not None}")
+            has_overlap = False
+            for existing in existing_schedules:
+                # If both have dates, check for date range overlap
+                if start_date and end_date and existing.start_date and existing.end_date:
+                    # Overlap if: (StartA <= EndB) and (EndA >= StartB)
+                    if start_date <= existing.end_date and end_date >= existing.start_date:
+                        has_overlap = True
+                        break
+                # If one has no dates (permanent) and the other does, it's an overlap
+                elif (not start_date or not end_date) or (not existing.start_date or not existing.end_date):
+                    has_overlap = True
+                    break
             
-            if not existing_schedule:
+            print(f"DEBUG: Day {day_int}, has_overlap: {has_overlap}")
+            
+            if not has_overlap:
                 schedule = Schedule(
                     classroom_id=classroom_id,
                     day_of_week=day_int,
@@ -1151,7 +1164,7 @@ def add_schedule():
                 print(f"DEBUG: Created schedule for day {day_int}")
             else:
                 existing_count += 1
-                print(f"DEBUG: Schedule already exists for day {day_int}")
+                print(f"DEBUG: Schedule already exists or overlaps for day {day_int}")
         
         if created_count > 0:
             db.session.commit()
