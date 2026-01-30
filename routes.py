@@ -92,6 +92,8 @@ def classroom_detail(classroom_id):
     day_filter = request.args.get('day_of_week', '')
     course_filter = request.args.get('course_name', '')
     date_filter_str = request.args.get('date', '')
+    
+    classroom = Classroom.query.get_or_404(classroom_id)
 
     # Only show active schedules where courses haven't ended yet
     query = Schedule.query.filter_by(classroom_id=classroom_id, is_active=True)
