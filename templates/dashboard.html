@@ -45,6 +45,11 @@
             <div class="card-body">
                 <form method="GET" action="{{ url_for('dashboard') }}" class="row g-3">
                     <div class="col-md-2">
+                        <label for="course_name" class="form-label">Curso</label>
+                        <input type="text" class="form-control" id="course_name" name="course_name" 
+                               value="{{ current_filters.course_name }}" placeholder="Nome do curso">
+                    </div>
+                    <div class="col-md-2">
                         <label for="block" class="form-label">Bloco</label>
                         <select class="form-select" id="block" name="block">
                             <option value="">Todos os Blocos</option>

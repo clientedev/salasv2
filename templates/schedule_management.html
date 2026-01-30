@@ -64,6 +64,72 @@
         </div>
     </div>
 
+    <!-- Filtros de Busca -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Filtrar Horários</h5>
+                </div>
+                <div class="card-body">
+                    <form method="GET" action="{{ url_for('schedule_management') }}" class="row g-3">
+                        <div class="col-md-3">
+                            <label for="filter_classroom" class="form-label">Sala</label>
+                            <select class="form-select" id="filter_classroom" name="classroom_id">
+                                <option value="">Todas as Salas</option>
+                                {% for classroom in classrooms %}
+                                <option value="{{ classroom.id }}" {{ 'selected' if current_filters.classroom_id == classroom.id else '' }}>
+                                    {{ classroom.name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="filter_day" class="form-label">Dia</label>
+                            <select class="form-select" id="filter_day" name="day_of_week">
+                                <option value="">Todos os Dias</option>
+                                <option value="0" {{ 'selected' if current_filters.day_of_week == '0' else '' }}>Segunda</option>
+                                <option value="1" {{ 'selected' if current_filters.day_of_week == '1' else '' }}>Terça</option>
+                                <option value="2" {{ 'selected' if current_filters.day_of_week == '2' else '' }}>Quarta</option>
+                                <option value="3" {{ 'selected' if current_filters.day_of_week == '3' else '' }}>Quinta</option>
+                                <option value="4" {{ 'selected' if current_filters.day_of_week == '4' else '' }}>Sexta</option>
+                                <option value="5" {{ 'selected' if current_filters.day_of_week == '5' else '' }}>Sábado</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="filter_shift" class="form-label">Turno</label>
+                            <select class="form-select" id="filter_shift" name="shift">
+                                <option value="">Todos os Turnos</option>
+                                <option value="morning" {{ 'selected' if current_filters.shift == 'morning' else '' }}>Manhã</option>
+                                <option value="afternoon" {{ 'selected' if current_filters.shift == 'afternoon' else '' }}>Tarde</option>
+                                <option value="fullday" {{ 'selected' if current_filters.shift == 'fullday' else '' }}>Integral</option>
+                                <option value="night" {{ 'selected' if current_filters.shift == 'night' else '' }}>Noite</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="filter_course" class="form-label">Curso</label>
+                            <input type="text" class="form-control" id="filter_course" name="course_name" 
+                                   value="{{ current_filters.course_name }}" placeholder="Nome do curso">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="filter_instructor" class="form-label">Instrutor</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="filter_instructor" name="instructor" 
+                                       value="{{ current_filters.instructor }}" placeholder="Nome do instrutor">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-search"></i>
+                                </button>
+                                <a href="{{ url_for('schedule_management') }}" class="btn btn-outline-secondary">
+                                    <i class="fas fa-times"></i>
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Current Schedules -->
     <div class="row">
         <div class="col-12">
@@ -134,6 +200,31 @@
                             </tbody>
                         </table>
                     </div>
+
+                    <!-- Pagination -->
+                    {% if pagination and pagination.pages > 1 %}
+                    <nav aria-label="Navegação de horários">
+                        <ul class="pagination justify-content-center mt-4">
+                            <li class="page-item {{ 'disabled' if not pagination.has_prev else '' }}">
+                                <a class="page-link" href="{{ url_for('schedule_management', page=pagination.prev_num, classroom_id=current_filters.classroom_id, day_of_week=current_filters.day_of_week, shift=current_filters.shift, course_name=current_filters.course_name, instructor=current_filters.instructor) if pagination.has_prev else '#' }}">Anterior</a>
+                            </li>
+                            
+                            {% for p in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
+                                {% if p %}
+                                    <li class="page-item {{ 'active' if p == pagination.page else '' }}">
+                                        <a class="page-link" href="{{ url_for('schedule_management', page=p, classroom_id=current_filters.classroom_id, day_of_week=current_filters.day_of_week, shift=current_filters.shift, course_name=current_filters.course_name, instructor=current_filters.instructor) if p != pagination.page else '#' }}">{{ p }}</a>
+                                    </li>
+                                {% else %}
+                                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                                {% endif %}
+                            {% endfor %}
+
+                            <li class="page-item {{ 'disabled' if not pagination.has_next else '' }}">
+                                <a class="page-link" href="{{ url_for('schedule_management', page=pagination.next_num, classroom_id=current_filters.classroom_id, day_of_week=current_filters.day_of_week, shift=current_filters.shift, course_name=current_filters.course_name, instructor=current_filters.instructor) if pagination.has_next else '#' }}">Próximo</a>
+                            </li>
+                        </ul>
+                    </nav>
+                    {% endif %}
                     {% else %}
                     <div class="text-center py-5">
                         <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>

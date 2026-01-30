@@ -1048,21 +1048,45 @@ def add_classroom():
 @app.route('/schedule_management')
 @require_admin_auth
 def schedule_management():
+    # Get filters
+    classroom_id = request.args.get('classroom_id', type=int)
+    day_of_week = request.args.get('day_of_week')
+    shift = request.args.get('shift')
+    course_name = request.args.get('course_name', '')
+    instructor = request.args.get('instructor', '')
+    
     current_date = get_brazil_time().date()
+    query = Schedule.query.filter_by(is_active=True)
+    
+    # Filter out expired courses
+    query = query.filter(
+        db.or_(
+            Schedule.end_date == None,
+            Schedule.end_date >= current_date
+        )
+    )
+    
+    if classroom_id:
+        query = query.filter(Schedule.classroom_id == classroom_id)
+    if day_of_week and day_of_week != '':
+        query = query.filter(Schedule.day_of_week == int(day_of_week))
+    if shift:
+        query = query.filter(Schedule.shift == shift)
+    if course_name:
+        query = query.filter(Schedule.course_name.ilike(f'%{course_name}%'))
+    if instructor:
+        query = query.filter(Schedule.instructor.ilike(f'%{instructor}%'))
+    
+    # Pagination
+    page = request.args.get('page', 1, type=int)
+    per_page = 20
+    pagination = query.order_by(Schedule.day_of_week, Schedule.shift).paginate(page=page, per_page=per_page, error_out=False)
+    schedules = pagination.items
     
     classrooms = Classroom.query.all()
     
-    # Only show active schedules where courses haven't ended yet
-    schedules = Schedule.query.filter_by(is_active=True).filter(
-        db.or_(
-            Schedule.end_date == None,  # No end date specified
-            Schedule.end_date >= current_date  # Course hasn't ended yet
-        )
-    ).all()
-    
-    print(f"DEBUG: Schedule management showing {len(schedules)} active/current schedules (expired courses hidden)")
-    
-    # Organize schedules by classroom and day
+    # Organize schedules by classroom and day for any legacy template usage if needed
+    # but the management template usually lists them linearly now
     schedule_map = {}
     for schedule in schedules:
         if schedule.classroom_id not in schedule_map:
@@ -1074,7 +1098,15 @@ def schedule_management():
     return render_template('schedule_management.html', 
                          classrooms=classrooms, 
                          schedules=schedules,
-                         schedule_map=schedule_map)
+                         pagination=pagination,
+                         schedule_map=schedule_map,
+                         current_filters={
+                             'classroom_id': classroom_id,
+                             'day_of_week': day_of_week,
+                             'shift': shift,
+                             'course_name': course_name,
+                             'instructor': instructor
+                         })
 
 @app.route('/add_schedule', methods=['POST'])
 @require_admin_auth
@@ -1222,11 +1254,22 @@ def dashboard():
     week_filter = request.args.get('week', '')  # New week filter parameter
     
     # Build classroom query with filters
+    course_name_filter = request.args.get('course_name', '')
+    
     classroom_query = Classroom.query
     if block_filter:
         classroom_query = classroom_query.filter(Classroom.block.contains(block_filter))
     if software_filter:
         classroom_query = classroom_query.filter(Classroom.software.contains(software_filter))
+    
+    # Filter classrooms by course name if specified
+    if course_name_filter:
+        classroom_ids_with_course = [s.classroom_id for s in Schedule.query.filter(
+            Schedule.course_name.ilike(f'%{course_name_filter}%'),
+            Schedule.is_active == True
+        ).all()]
+        classroom_query = classroom_query.filter(Classroom.id.in_(classroom_ids_with_course))
+
     if has_computers_filter:
         has_computers_bool = has_computers_filter.lower() == 'true'
         classroom_query = classroom_query.filter(Classroom.has_computers == has_computers_bool)
@@ -1348,7 +1391,8 @@ def dashboard():
                              'capacity': capacity_filter,
                              'day': day_filter,
                              'shift': shift_filter,
-                             'week': week_filter
+                             'week': week_filter,
+                             'course_name': course_name_filter
                          },
                          week_dates={
                              'monday': week_monday,
