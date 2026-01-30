@@ -47,6 +47,10 @@
                             <input type="text" class="form-control" id="filterSoftware" placeholder="Software instalado">
                         </div>
                         <div class="col-md-3">
+                            <label class="form-label">Curso</label>
+                            <input type="text" class="form-control" id="filterCourse" placeholder="Nome do curso">
+                        </div>
+                        <div class="col-md-3">
                             <label class="form-label">Computadores</label>
                             <select class="form-select" id="filterComputers">
                                 <option value="">Todos</option>
@@ -89,6 +93,7 @@
              data-computers="{{ classroom.has_computers|lower }}"
              data-capacity="{{ classroom.capacity }}"
              data-software="{{ classroom.software|lower }}"
+             data-courses="{% for schedule in classroom.schedules if schedule.is_active %}{{ schedule.course_name|lower }} {% endfor %}"
              data-instructors="{% for schedule in classroom.schedules %}{{ schedule.instructor|lower }} {% endfor %}">
             <div class="card h-100 clean-card">
                 {% if classroom.image_filename %}
@@ -171,6 +176,7 @@ function filterClassrooms() {
     const filterBlock = document.getElementById('filterBlock').value.toLowerCase();
     const filterInstructor = document.getElementById('filterInstructor').value.toLowerCase();
     const filterSoftware = document.getElementById('filterSoftware').value.toLowerCase();
+    const filterCourse = document.getElementById('filterCourse').value.toLowerCase();
     const filterComputers = document.getElementById('filterComputers').value;
     const filterCapacity = document.getElementById('filterCapacity').value;
     
@@ -192,6 +198,11 @@ function filterClassrooms() {
         
         // Software filter (partial match)
         if (filterSoftware && !card.dataset.software.includes(filterSoftware)) {
+            show = false;
+        }
+
+        // Course filter (partial match)
+        if (filterCourse && !card.dataset.courses.includes(filterCourse)) {
             show = false;
         }
         
@@ -220,6 +231,7 @@ function clearFilters() {
     document.getElementById('filterBlock').value = '';
     document.getElementById('filterInstructor').value = '';
     document.getElementById('filterSoftware').value = '';
+    document.getElementById('filterCourse').value = '';
     document.getElementById('filterComputers').value = '';
     document.getElementById('filterCapacity').value = '';
     filterClassrooms();
@@ -231,6 +243,7 @@ const clearBtn = document.getElementById('clearFilters');
 const filterBlockEl = document.getElementById('filterBlock');
 const filterInstructorEl = document.getElementById('filterInstructor');
 const filterSoftwareEl = document.getElementById('filterSoftware');
+const filterCourseEl = document.getElementById('filterCourse');
 const filterComputersEl = document.getElementById('filterComputers');
 const filterCapacityEl = document.getElementById('filterCapacity');
 
@@ -239,6 +252,7 @@ if (clearBtn) clearBtn.addEventListener('click', clearFilters);
 if (filterBlockEl) filterBlockEl.addEventListener('input', filterClassrooms);
 if (filterInstructorEl) filterInstructorEl.addEventListener('input', filterClassrooms);
 if (filterSoftwareEl) filterSoftwareEl.addEventListener('input', filterClassrooms);
+if (filterCourseEl) filterCourseEl.addEventListener('input', filterClassrooms);
 if (filterComputersEl) filterComputersEl.addEventListener('change', filterClassrooms);
 if (filterCapacityEl) filterCapacityEl.addEventListener('change', filterClassrooms);
 </script>
