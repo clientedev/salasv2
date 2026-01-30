@@ -91,20 +91,38 @@ def classroom_detail(classroom_id):
     shift_filter = request.args.get('shift', '')
     day_filter = request.args.get('day_of_week', '')
     course_filter = request.args.get('course_name', '')
-    
-    classroom = Classroom.query.get_or_404(classroom_id)
-    
+    date_filter_str = request.args.get('date', '')
+
     # Only show active schedules where courses haven't ended yet
-    query = Schedule.query.filter_by(classroom_id=classroom_id, is_active=True).filter(
-        db.or_(
-            Schedule.end_date == None,  # No end date specified
-            Schedule.end_date >= current_date  # Course hasn't ended yet
+    query = Schedule.query.filter_by(classroom_id=classroom_id, is_active=True)
+
+    if date_filter_str:
+        try:
+            filter_date = datetime.strptime(date_filter_str, '%Y-%m-%d').date()
+            # Filter schedules that are active on this specific date
+            # 1. Day of week matches
+            query = query.filter(Schedule.day_of_week == filter_date.weekday())
+            # 2. Date is within range
+            query = query.filter(
+                db.and_(
+                    db.or_(Schedule.start_date.is_(None), Schedule.start_date <= filter_date),
+                    db.or_(Schedule.end_date.is_(None), Schedule.end_date >= filter_date)
+                )
+            )
+        except ValueError:
+            pass
+    else:
+        # Default behavior: show future/current schedules
+        query = query.filter(
+            db.or_(
+                Schedule.end_date == None,
+                Schedule.end_date >= current_date
+            )
         )
-    )
-    
+
     if shift_filter:
         query = query.filter(Schedule.shift == shift_filter)
-    if day_filter:
+    if day_filter and not date_filter_str: # Date filter already implies a day
         query = query.filter(Schedule.day_of_week == int(day_filter))
     if course_filter:
         query = query.filter(Schedule.course_name.ilike(f'%{course_filter}%'))
@@ -166,7 +184,8 @@ def classroom_detail(classroom_id):
                          current_filters={
                              'shift': shift_filter,
                              'day_of_week': day_filter,
-                             'course_name': course_filter
+                             'course_name': course_filter,
+                             'date': date_filter_str
                          })
 
 @app.route('/login', methods=['GET', 'POST'])

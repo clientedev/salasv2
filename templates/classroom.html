@@ -109,11 +109,16 @@
                         <i class="fas fa-filter me-1"></i>Filtros
                     </button>
                 </div>
-                <div class="collapse {{ 'show' if current_filters.shift or current_filters.day_of_week or current_filters.course_name else '' }}" id="scheduleFilters">
+                <div class="collapse {{ 'show' if current_filters.shift or current_filters.day_of_week or current_filters.course_name or current_filters.date else '' }}" id="scheduleFilters">
                     <div class="card-body border-bottom">
                         <form method="GET" class="row g-2">
                             <div class="col-md-3">
-                                <select name="day_of_week" class="form-select form-select-sm">
+                                <label class="small text-muted">Data específica</label>
+                                <input type="date" name="date" class="form-control form-control-sm" value="{{ current_filters.date }}">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="small text-muted">Dia da semana</label>
+                                <select name="day_of_week" class="form-select form-select-sm" {{ 'disabled' if current_filters.date else '' }}>
                                     <option value="">Todos os dias</option>
                                     <option value="0" {{ 'selected' if current_filters.day_of_week == '0' else '' }}>Segunda</option>
                                     <option value="1" {{ 'selected' if current_filters.day_of_week == '1' else '' }}>Terça</option>
@@ -123,7 +128,8 @@
                                     <option value="5" {{ 'selected' if current_filters.day_of_week == '5' else '' }}>Sábado</option>
                                 </select>
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-2">
+                                <label class="small text-muted">Turno</label>
                                 <select name="shift" class="form-select form-select-sm">
                                     <option value="">Todos os turnos</option>
                                     <option value="morning" {{ 'selected' if current_filters.shift == 'morning' else '' }}>Manhã</option>
@@ -132,10 +138,11 @@
                                     <option value="night" {{ 'selected' if current_filters.shift == 'night' else '' }}>Noite</option>
                                 </select>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
+                                <label class="small text-muted">Nome do curso</label>
                                 <input type="text" name="course_name" class="form-control form-control-sm" placeholder="Nome do curso" value="{{ current_filters.course_name }}">
                             </div>
-                            <div class="col-md-2 d-grid">
+                            <div class="col-md-2 d-grid align-items-end">
                                 <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
                             </div>
                         </form>
