@@ -3,6 +3,7 @@
 {% block title %}{{ classroom.name }} - SENAI Morvan Figueiredo{% endblock %}
 
 {% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <div class="container">
     <div class="row">
         <div class="col-12">
@@ -48,6 +49,20 @@
                                         <small class="text-muted">Possui computadores</small>
                                     </div>
                                 {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gráfico de Ocupação -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card border-0 bg-light">
+                                <div class="card-body">
+                                    <h6 class="card-title mb-3"><i class="fas fa-chart-bar me-2"></i>Ocupação da Sala (Semanal)</h6>
+                                    <div style="height: 200px; position: relative;">
+                                        <canvas id="occupancyChart"></canvas>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -394,6 +409,54 @@
 </div>
 
 <script>
+// Gráfico de Ocupação
+document.addEventListener('DOMContentLoaded', function() {
+    const ctx = document.getElementById('occupancyChart').getContext('2d');
+    
+    // Processar dados dos horários para o gráfico
+    const dayLabels = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    const occupancyData = [0, 0, 0, 0, 0, 0]; // Contagem de turnos ocupados por dia
+    
+    {% for schedule in schedules %}
+        if ({{ schedule.day_of_week }} >= 0 && {{ schedule.day_of_week }} <= 5) {
+            occupancyData[{{ schedule.day_of_week }}]++;
+        }
+    {% endfor %}
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: dayLabels,
+            datasets: [{
+                label: 'Turnos Ocupados',
+                data: occupancyData,
+                backgroundColor: 'rgba(13, 110, 253, 0.5)',
+                borderColor: 'rgb(13, 110, 253)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1,
+                        precision: 0
+                    },
+                    max: 4 // Máximo de 4 turnos (Manhã, Tarde, Noite, Integral)
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+});
+
 // Function to reveal classroom admin password
 function revealClassroomPassword() {
     const systemPassword = prompt('Digite a senha de administrador do sistema para revelar a senha da sala:');
