@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Gerenciar Horários - SENAI Morvan Figueiredo{% endblock %}
+{% block title %}Gerenciar Horários - {{ session.get('active_school_name', 'SENAI') }}{% endblock %}
 
 {% block content %}
 <div class="container">
@@ -161,7 +161,7 @@
                                         <a href="{{ url_for('classroom_detail', classroom_id=schedule.classroom.id) }}" class="text-decoration-none">
                                             {{ schedule.classroom.name }}
                                         </a>
-                                        <small class="text-muted d-block">{{ schedule.classroom.block }}{{ schedule.classroom.floor }}</small>
+                                        <small class="text-muted d-block">{{ schedule.classroom.block }}</small>
                                     </td>
                                     <td>{{ schedule.to_dict()['day_name'] }}</td>
                                     <td>
@@ -262,7 +262,7 @@
                             <select class="form-select" id="classroom_id" name="classroom_id" required>
                                 <option value="">Selecione a sala</option>
                                 {% for classroom in classrooms %}
-                                <option value="{{ classroom.id }}">{{ classroom.name }} ({{ classroom.block }}{{ classroom.floor }})</option>
+                                <option value="{{ classroom.id }}">{{ classroom.name }} ({{ classroom.block }})</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -342,102 +342,6 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-// Auto-fill times based on shift selection
-document.getElementById('shift').addEventListener('change', function() {
-    const shift = this.value;
-    const dayOfWeek = document.getElementById('day_of_week').value;
-    const startTime = document.getElementById('start_time');
-    const endTime = document.getElementById('end_time');
-    
-    // Disable night shift for Saturday
-    if (dayOfWeek === '5' && shift === 'night') {
-        alert('O turno noite não está disponível aos sábados.');
-        this.value = '';
-        return;
-    }
-    
-    const isSaturday = dayOfWeek === '5';
-    
-    switch(shift) {
-        case 'morning':
-            startTime.value = isSaturday ? '08:00' : '07:30';
-            endTime.value = '12:00';
-            break;
-        case 'afternoon':
-            startTime.value = '13:00';
-            endTime.value = '18:00';
-            break;
-        case 'fullday':
-            startTime.value = isSaturday ? '08:00' : '07:30';
-            endTime.value = '18:00';
-            break;
-        case 'night':
-            if (!isSaturday) {
-                startTime.value = '19:00';
-                endTime.value = '22:30';
-            }
-            break;
-    }
-});
-
-// Disable night shift for Saturday
-document.getElementById('day_of_week').addEventListener('change', function() {
-    const dayOfWeek = this.value;
-    const shiftSelect = document.getElementById('shift');
-    const nightOption = shiftSelect.querySelector('option[value="night"]');
-    
-    if (dayOfWeek === '5') { // Saturday
-        nightOption.disabled = true;
-        if (shiftSelect.value === 'night') {
-            shiftSelect.value = '';
-        }
-    } else {
-        nightOption.disabled = false;
-    }
-});
-
-// Form validation
-document.querySelector('form').addEventListener('submit', function(e) {
-    const dayOfWeek = document.getElementById('day_of_week').value;
-    const shift = document.getElementById('shift').value;
-    
-    if (dayOfWeek === '5' && shift === 'night') {
-        e.preventDefault();
-        alert('O turno noite não está disponível aos sábados.');
-        return false;
-    }
-});
-
-// Batch schedule form auto-fill times
-document.getElementById('batch_shift').addEventListener('change', function() {
-    const shift = this.value;
-    const startTime = document.getElementById('batch_start_time');
-    const endTime = document.getElementById('batch_end_time');
-    
-    switch(shift) {
-        case 'morning':
-            startTime.value = '07:30';
-            endTime.value = '12:00';
-            break;
-        case 'afternoon':
-            startTime.value = '13:00';
-            endTime.value = '18:00';
-            break;
-        case 'fullday':
-            startTime.value = '07:30';
-            endTime.value = '18:00';
-            break;
-        case 'night':
-            startTime.value = '19:00';
-            endTime.value = '22:30';
-            break;
-    }
-});
-</script>
 
 <!-- Batch Schedule Modal -->
 <div class="modal fade" id="batchScheduleModal" tabindex="-1">
@@ -455,7 +359,7 @@ document.getElementById('batch_shift').addEventListener('change', function() {
                             <select class="form-select" id="batch_classroom_id" name="classroom_id" required>
                                 <option value="">Selecione a sala</option>
                                 {% for classroom in classrooms %}
-                                <option value="{{ classroom.id }}">{{ classroom.name }} ({{ classroom.block }}{{ classroom.floor }})</option>
+                                <option value="{{ classroom.id }}">{{ classroom.name }} ({{ classroom.block }})</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -566,4 +470,102 @@ document.getElementById('batch_shift').addEventListener('change', function() {
     </div>
 </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Auto-fill times based on shift selection
+document.getElementById('shift').addEventListener('change', function() {
+    const shift = this.value;
+    const dayOfWeek = document.getElementById('day_of_week').value;
+    const startTime = document.getElementById('start_time');
+    const endTime = document.getElementById('end_time');
+    
+    // Disable night shift for Saturday
+    if (dayOfWeek === '5' && shift === 'night') {
+        alert('O turno noite não está disponível aos sábados.');
+        this.value = '';
+        return;
+    }
+    
+    const isSaturday = dayOfWeek === '5';
+    
+    switch(shift) {
+        case 'morning':
+            startTime.value = isSaturday ? '08:00' : '07:30';
+            endTime.value = '12:00';
+            break;
+        case 'afternoon':
+            startTime.value = '13:00';
+            endTime.value = '18:00';
+            break;
+        case 'fullday':
+            startTime.value = isSaturday ? '08:00' : '07:30';
+            endTime.value = '18:00';
+            break;
+        case 'night':
+            if (!isSaturday) {
+                startTime.value = '19:00';
+                endTime.value = '22:30';
+            }
+            break;
+    }
+});
+
+// Disable night shift for Saturday
+document.getElementById('day_of_week').addEventListener('change', function() {
+    const dayOfWeek = this.value;
+    const shiftSelect = document.getElementById('shift');
+    const nightOption = shiftSelect.querySelector('option[value="night"]');
+    
+    if (dayOfWeek === '5') { // Saturday
+        nightOption.disabled = true;
+        if (shiftSelect.value === 'night') {
+            shiftSelect.value = '';
+        }
+    } else {
+        nightOption.disabled = false;
+    }
+});
+
+// Form validation
+document.querySelector('form').addEventListener('submit', function(e) {
+    const dayOfWeek = document.getElementById('day_of_week').value;
+    const shift = document.getElementById('shift').value;
+    
+    if (dayOfWeek === '5' && shift === 'night') {
+        e.preventDefault();
+        alert('O turno noite não está disponível aos sábados.');
+        return false;
+    }
+});
+
+// Batch schedule form auto-fill times
+document.getElementById('batch_shift').addEventListener('change', function() {
+    const shift = this.value;
+    const startTime = document.getElementById('batch_start_time');
+    const endTime = document.getElementById('batch_end_time');
+    
+    switch(shift) {
+        case 'morning':
+            startTime.value = '07:30';
+            endTime.value = '12:00';
+            break;
+        case 'afternoon':
+            startTime.value = '13:00';
+            endTime.value = '18:00';
+            break;
+        case 'fullday':
+            startTime.value = '07:30';
+            endTime.value = '18:00';
+            break;
+        case 'night':
+            startTime.value = '19:00';
+            endTime.value = '22:30';
+            break;
+    }
+});
+</script>
+
+</script>
 {% endblock %}
