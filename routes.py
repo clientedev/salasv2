@@ -96,19 +96,25 @@ def index():
 
 @app.route('/select_school')
 def select_school():
-    schools = School.query.all()
-    # Support for first-time automated setup if no schools exist
-    if not schools:
-        try:
-            default_school = School(name="SENAI Morvan Figueiredo", admin_password="senai103103")
-            db.session.add(default_school)
-            db.session.commit()
-            schools = [default_school]
-        except Exception as e:
-            import logging
-            logging.error(f"Error creating default school: {e}")
-            
-    return render_template('select_school.html', schools=schools)
+    try:
+        schools = School.query.all()
+        # Support for first-time automated setup if no schools exist
+        if not schools:
+            try:
+                default_school = School(name="SENAI Morvan Figueiredo", admin_password="senai103103")
+                db.session.add(default_school)
+                db.session.commit()
+                schools = [default_school]
+            except Exception as e:
+                import logging
+                logging.error(f"Error creating default school: {e}")
+                
+        return render_template('select_school.html', schools=schools)
+    except Exception as e:
+        import traceback
+        import html
+        error_msg = html.escape(traceback.format_exc())
+        return f"<h1>Diagnostic Error Traceback:</h1><pre>{error_msg}</pre>", 500
 
 @app.route('/set_active_school/<int:school_id>')
 def set_active_school(school_id):
