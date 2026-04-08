@@ -77,6 +77,31 @@ with app.app_context():
             import traceback
             traceback.print_exc()
         
+        # Initialize sample data ONLY if no schools exist
+        existing_schools = models.School.query.first()
+        if not existing_schools:
+            try:
+                # Create default school
+                default_school = models.School(name="SENAI Morvan Figueiredo", admin_password="senai103103")
+                db.session.add(default_school)
+                db.session.commit()
+                logging.info("✅ Created default initial school.")
+            except Exception as e:
+                db.session.rollback()
+                logging.warning(f"Could not create default school: {e}")
+                
+        # Fix orphan classrooms (migration to multi-school)
+        try:
+            with db.engine.connect() as conn:
+                first_school = conn.execute(text("SELECT id FROM school LIMIT 1")).scalar()
+                if first_school is not None:
+                    conn.execute(text(f"UPDATE classroom SET school_id = {first_school} WHERE school_id IS NULL"))
+                    conn.execute(text("UPDATE schedule SET is_active = TRUE WHERE is_active IS NULL"))
+                    conn.commit()
+                    logging.info(f"✅ Orphan classrooms mapped to school {first_school}")
+        except Exception as e:
+            logging.warning(f"Error mapping orphan classrooms: {e}")
+
         # Initialize sample data ONLY if no classrooms exist
         existing_classrooms = models.Classroom.query.first()
         if not existing_classrooms:

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'Editar' if school else 'Nova' }} Unidade - Admin{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <div class="school-icon mb-4">
+                        {% if school and school.logo_data %}
+                        <img src="{{ url_for('serve_school_logo', school_id=school.id) }}" 
+                             alt="{{ school.name }}" class="img-fluid rounded" style="max-height: 100px;">
+                        {% else %}
+                        <i class="fas fa-school fa-4x text-white"></i>
+                        {% endif %}
+                    </div>
+                    <h4 class="mb-0">
+                        <i class="fas fa-university me-2"></i>
+                        {{ 'Editar Unidade' if school else 'Adicionar Nova Unidade' }}
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <form method="POST" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="name" name="name" 
+                                   value="{{ school.name if school else '' }}" 
+                                   placeholder="Ex: SENAI Morvan Figueiredo" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="logo" class="form-label">Logo da Unidade</label>
+                            {% if school and school.logo_data %}
+                            <div class="mb-2 text-center">
+                                <img src="{{ url_for('serve_school_logo', school_id=school.id) }}" 
+                                     alt="Logo Atual" class="img-thumbnail" style="max-height: 120px;">
+                            </div>
+                            {% endif %}
+                            <input type="file" class="form-control" id="logo" name="logo" accept="image/*">
+                            <small class="text-muted">A imagem será exibida na barra de navegação e na tela inicial.</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="admin_password" class="form-label">Senha do Administrador</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control" id="admin_password" name="admin_password" 
+                                       value="{{ school.admin_password if school else '' }}" 
+                                       placeholder="Defina a senha de admin para esta unidade" required>
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordInput()">
+                                    <i class="fas fa-eye" id="toggleIcon"></i>
+                                </button>
+                            </div>
+                            <small class="text-muted">Esta senha será usada para acessar o painel administrativo desta unidade específica.</small>
+                        </div>
+                        
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save me-2"></i>
+                                {{ 'Atualizar Unidade' if school else 'Criar Unidade' }}
+                            </button>
+                            <a href="{{ url_for('admin_schools') }}" class="btn btn-outline-secondary">Cancelar</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function togglePasswordInput() {
+    const passwordInput = document.getElementById('admin_password');
+    const toggleIcon = document.getElementById('toggleIcon');
+    
+    if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        toggleIcon.classList.replace('fa-eye', 'fa-eye-slash');
+    } else {
+        passwordInput.type = 'password';
+        toggleIcon.classList.replace('fa-eye-slash', 'fa-eye');
+    }
+}
+</script>
+{% endblock %}
