@@ -1,6 +1,27 @@
 from app import db
 from datetime import datetime
 
+class School(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+    admin_password = db.Column(db.String(255), nullable=False)
+    logo_data = db.Column(db.LargeBinary, nullable=True)
+    logo_mimetype = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationship with classrooms
+    classrooms = db.relationship('Classroom', backref='school', lazy=True, cascade='all, delete-orphan')
+
+    def __repr__(self):
+        return f'<School {self.name}>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'created_at': self.created_at.strftime('%d/%m/%Y %H:%M') if self.created_at else ''
+        }
+
 class Classroom(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
@@ -16,10 +37,11 @@ class Classroom(db.Model):
     image_mimetype = db.Column(db.String(100))  # Store image MIME type
     excel_mimetype = db.Column(db.String(100))  # Store Excel MIME type
     admin_password = db.Column(db.String(255), default='')  # Admin password for classroom access
+    school_id = db.Column(db.Integer, db.ForeignKey('school.id'), nullable=True) # Temporarily nullable for migration
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    def __init__(self, name='', capacity=0, has_computers=False, software='', description='', block='', image_filename='', excel_filename='', admin_password=''):
+    def __init__(self, name='', capacity=0, has_computers=False, software='', description='', block='', image_filename='', excel_filename='', admin_password='', school_id=None):
         self.name = name
         self.capacity = capacity
         self.has_computers = has_computers
@@ -29,6 +51,7 @@ class Classroom(db.Model):
         self.image_filename = image_filename
         self.excel_filename = excel_filename
         self.admin_password = admin_password
+        self.school_id = school_id
     
     # Relationship with schedules
     schedules = db.relationship('Schedule', backref='classroom', lazy=True, cascade='all, delete-orphan')

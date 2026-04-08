@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}SENAI Morvan Figueiredo - Sistema de Salas {% endblock %}</title>
+    <title>{% block title %}{{ session.get('active_school_name', 'SENAI') }} - Sistema de Salas {% endblock %}</title>
     
     <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#0d6efd">
-    <meta name="description" content="Sistema de Gestão de Salas de Aula SENAI Morvan Figueiredo">
+    <meta name="description" content="Sistema de Gestão de Salas de Aula {{ session.get('active_school_name', 'SENAI') }}">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="SENAI Salas">
@@ -27,9 +27,15 @@
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
-            <a class="navbar-brand" href="{{ url_for('index') }}">
-                <i class="fas fa-school me-2"></i>
-                SENAI Morvan Figueiredo
+            <a class="navbar-brand d-flex align-items-center" href="{{ url_for('select_school') }}" title="Clique para mudar de escola">
+                {% if session.active_school_id %}
+                <img src="{{ url_for('serve_school_logo', school_id=session.active_school_id) }}" 
+                     alt="Logo" height="30" class="d-inline-block align-top me-2 rounded"
+                     style="max-width: 150px; object-fit: contain;"
+                     onerror="this.style.display='none'">
+                {% endif %}
+                <i class="fas fa-school me-2" id="school-icon" {% if session.active_school_id %}style="display:none"{% endif %}></i>
+                <span class="text-truncate" style="max-width: 200px;">{{ session.get('active_school_name', 'Selecionar Escola') }}</span>
             </a>
             
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -40,40 +46,49 @@
                 <ul class="navbar-nav me-auto">
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('index') }}">
-                            <i class="fas fa-home me-1"></i>Início
+                            <i class="fas fa-home"></i> <span>Início</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('dashboard') }}">
-                            <i class="fas fa-tachometer-alt me-1"></i>Dashboard
+                            <i class="fas fa-tachometer-alt"></i> <span>Dashboard</span>
                         </a>
                     </li>
                     {% if session.admin_authenticated %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('schedule_management') }}">
-                            <i class="fas fa-calendar-alt me-1"></i>Gerenciar Horários
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-tools"></i> <span>Gestão</span>
                         </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('incidents_management') }}">
-                            <i class="fas fa-exclamation-triangle me-1"></i>Ocorrências
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('admin_schedule_requests') }}">
-                            <i class="fas fa-calendar-check me-1"></i>Solicitações
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('add_classroom') }}">
-                            <i class="fas fa-plus me-1"></i>Nova Sala
-                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{{ url_for('schedule_management') }}">
+                                <i class="fas fa-calendar-alt me-2"></i>Horários
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('incidents_management') }}">
+                                <i class="fas fa-exclamation-triangle me-2"></i>Ocorrências
+                            </a></li>
+                            <li><a class="dropdown-item" href="{{ url_for('admin_schools') }}">
+                                <i class="fas fa-university me-2"></i>Unidades
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ url_for('admin_schedule_requests') }}">
+                                <i class="fas fa-clipboard-list me-2"></i>Solicitações
+                            </a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item fw-bold text-primary" href="{{ url_for('add_classroom') }}">
+                                <i class="fas fa-plus-circle me-2"></i>Nova Sala
+                            </a></li>
+                        </ul>
                     </li>
                     {% endif %}
                 </ul>
                 
                 <ul class="navbar-nav">
                     {% if session.admin_authenticated %}
+                    <li class="nav-item">
+                        <a class="nav-link btn btn-primary text-white ms-2 px-3" href="{{ url_for('add_classroom') }}" style="border-radius: 20px;">
+                            <i class="fas fa-plus me-1"></i> Nova Sala
+                        </a>
+                    </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
                             <i class="fas fa-download me-1"></i>Relatórios
@@ -88,14 +103,14 @@
                         </ul>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('logout') }}">
-                            <i class="fas fa-sign-out-alt me-1"></i>Sair
+                        <a class="nav-link text-danger" href="{{ url_for('logout') }}">
+                            <i class="fas fa-sign-out-alt"></i> <span>Sair</span>
                         </a>
                     </li>
                     {% else %}
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('login') }}">
-                            <i class="fas fa-sign-in-alt me-1"></i>Login Admin
+                            <i class="fas fa-lock"></i> <span>Admin</span>
                         </a>
                     </li>
                     {% endif %}
@@ -128,12 +143,12 @@
         <div class="container">
             <div class="row">
                 <div class="col-md-6">
-                    <h5>SENAI Morvan Figueiredo</h5>
+                    <h5>{{ session.get('active_school_name', 'SENAI') }}</h5>
                     <p class="mb-0">Sistema de Gestão de Salas</p>
                 </div>
                 <div class="col-md-6 text-md-end">
     <p class="mb-0" style="font-size: 12px; margin-top: 20px;">
-        © 2025 SENAI "Morvan Figueiredo" - Desenvolvido por 
+        © 2025 {{ session.get('active_school_name', 'SENAI') }} - Desenvolvido por 
         <a href="https://www.linkedin.com/in/gabriel-eduardo-almeida/?originalSubdomain=br" target="_blank" style="text-decoration: none; color: inherit;">
             Gabriel Eduardo Almeida
         </a> 
@@ -201,7 +216,7 @@
                                     <i class="fas fa-robot"></i>
                                 </div>
                                 <div class="message-content">
-                                    <p>Olá! Sou o assistente virtual do SENAI Morvan Figueiredo. 🤖</p>
+                                    <p>Olá! Sou o assistente virtual do {{ session.get('active_school_name', 'SENAI') }}. 🤖</p>
                                     <p>Posso te ajudar com:</p>
                                     
                                     <div class="suggestion-buttons">
@@ -220,7 +235,7 @@
                                         <button class="btn btn-outline-primary btn-sm suggestion-btn mb-2" data-suggestion="Que software tem na Sala DEV?">
                                             💻 Software das salas
                                         </button>
-                                        <button class="btn btn-outline-info btn-sm suggestion-btn mb-2" data-suggestion="Sobre o SENAI Morvan Figueiredo">
+                                        <button class="btn btn-outline-info btn-sm suggestion-btn mb-2" data-suggestion="Sobre o {{ session.get('active_school_name', 'escola') }}">
                                             🏫 Sobre o SENAI
                                         </button>
                                         <button class="btn btn-outline-info btn-sm suggestion-btn mb-2" data-suggestion="Como entrar em contato?">
@@ -234,7 +249,6 @@
                                     <p class="mt-2">Ou digite sua pergunta abaixo:</p>
                                 </div>
                             </div>
-                        </div>
                     </div>
                     <div class="chat-input-container">
                         <div class="input-group">

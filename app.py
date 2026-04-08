@@ -67,6 +67,14 @@ with app.app_context():
                 except:
                     pass  # Column already exists
                 try:
+                    conn.execute(text("ALTER TABLE school ADD COLUMN logo_data BYTEA"))
+                except:
+                    pass  # Column already exists
+                try:
+                    conn.execute(text("ALTER TABLE school ADD COLUMN logo_mimetype VARCHAR(100)"))
+                except:
+                    pass  # Column already exists
+                try:
                     conn.execute(text("ALTER TABLE incident ADD COLUMN is_resolved BOOLEAN DEFAULT FALSE"))
                 except:
                     pass  # Column already exists
