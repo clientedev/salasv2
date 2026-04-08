@@ -49,77 +49,28 @@ with app.app_context():
         try:
             from sqlalchemy import text
             with db.engine.connect() as conn:
-                # Check if new columns exist, if not add them (PostgreSQL compatible)
-                try:
-                    conn.execute(text("ALTER TABLE classroom ADD COLUMN image_data BYTEA"))
-                except:
-                    pass  # Column already exists
-                try:
-                    conn.execute(text("ALTER TABLE classroom ADD COLUMN excel_data BYTEA"))
-                except:
-                    pass  # Column already exists
-                try:
-                    conn.execute(text("ALTER TABLE classroom ADD COLUMN image_mimetype VARCHAR(100)"))
-                except:
-                    pass  # Column already exists
-                try:
-                    conn.execute(text("ALTER TABLE classroom ADD COLUMN excel_mimetype VARCHAR(100)"))
-                except:
-                    pass  # Column already exists
-                try:
-                    conn.execute(text("ALTER TABLE school ADD COLUMN logo_data BYTEA"))
-                except:
-                    pass  # Column already exists
-                try:
-                    conn.execute(text("ALTER TABLE school ADD COLUMN logo_mimetype VARCHAR(100)"))
-                except:
-                    pass  # Column already exists
-                try:
-                    conn.execute(text("ALTER TABLE incident ADD COLUMN is_resolved BOOLEAN DEFAULT FALSE"))
-                except:
-                    pass  # Column already exists
-                try:
-                    conn.execute(text("ALTER TABLE incident ADD COLUMN admin_response TEXT"))
-                except:
-                    pass  # Column already exists
-                try:
-                    conn.execute(text("ALTER TABLE incident ADD COLUMN response_date TIMESTAMP"))
-                except:
-                    pass  # Column already exists
-                # Add hidden_from_classroom column with better error handling
-                try:
-                    # Different checks for different database types
-                    db_url_str = str(db.engine.url)
-                    column_exists = False
-                    
-                    if 'postgresql' in db_url_str or 'postgres' in db_url_str:
-                        # PostgreSQL check
-                        try:
-                            result = conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='incident' AND column_name='hidden_from_classroom'"))
-                            column_exists = result.fetchone() is not None
-                        except:
-                            column_exists = False
-                    else:
-                        # SQLite check - try to select the column
-                        try:
-                            conn.execute(text("SELECT hidden_from_classroom FROM incident LIMIT 1"))
-                            column_exists = True
-                        except:
-                            column_exists = False
-                    
-                    if not column_exists:
-                        # Add the column
-                        conn.execute(text("ALTER TABLE incident ADD COLUMN hidden_from_classroom BOOLEAN DEFAULT FALSE"))
+                migrations = [
+                    "ALTER TABLE classroom ADD COLUMN image_data BYTEA",
+                    "ALTER TABLE classroom ADD COLUMN excel_data BYTEA",
+                    "ALTER TABLE classroom ADD COLUMN image_mimetype VARCHAR(100)",
+                    "ALTER TABLE classroom ADD COLUMN excel_mimetype VARCHAR(100)",
+                    "ALTER TABLE classroom ADD COLUMN school_id INTEGER",
+                    "ALTER TABLE school ADD COLUMN logo_data BYTEA",
+                    "ALTER TABLE school ADD COLUMN logo_mimetype VARCHAR(100)",
+                    "ALTER TABLE incident ADD COLUMN is_resolved BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE incident ADD COLUMN admin_response TEXT",
+                    "ALTER TABLE incident ADD COLUMN response_date TIMESTAMP",
+                    "ALTER TABLE incident ADD COLUMN hidden_from_classroom BOOLEAN DEFAULT FALSE",
+                ]
+                
+                for migration in migrations:
+                    try:
+                        conn.execute(text(migration))
                         conn.commit()
-                        logging.info("✅ Added hidden_from_classroom column")
-                    else:
-                        logging.info("✅ hidden_from_classroom column already exists")
-                        
-                except Exception as col_error:
-                    # Final fallback: ignore if column already exists error
-                    logging.warning(f"Column migration info: {col_error}")
-                    pass
-                conn.commit()
+                        logging.info(f"✅ Migration successful: {migration}")
+                    except Exception as e:
+                        conn.rollback()  # Crucial for PostgreSQL to clear the 'InFailedSqlTransaction' state
+                        pass # Column likely already exists
         except Exception as migration_error:
             import logging
             logging.warning(f"Database migration error (non-critical): {migration_error}")
