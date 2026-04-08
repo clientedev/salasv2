@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Login Admin - SENAI Morvan Figueiredo{% endblock %}
+{% block title %}Login Admin - {{ session.get('active_school_name', 'SENAI') }}{% endblock %}
 
 {% block content %}
 <div class="container">

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Mapa de Salas - SENAI Morvan Figueiredo{% endblock %}
+{% block title %}Mapa de Salas - {{ session.get('active_school_name', 'SENAI') }}{% endblock %}
 
 {% block content %}
 <div class="container">
@@ -16,6 +16,9 @@
                         <i class="fas fa-tachometer-alt me-2"></i>Dashboard
                     </a>
                     {% if session.admin_authenticated %}
+                    <a href="{{ url_for('add_classroom') }}" class="btn btn-primary">
+                        <i class="fas fa-plus me-2"></i>Nova Sala
+                    </a>
                     <a href="{{ url_for('generate_general_report_route') }}" class="btn btn-outline-success">
                         <i class="fas fa-file-pdf me-2"></i>Relatório Geral
                     </a>
@@ -159,7 +162,7 @@
                 <p class="text-muted">Não há salas cadastradas no sistema.</p>
                 {% if session.admin_authenticated %}
                 <a href="{{ url_for('add_classroom') }}" class="btn btn-primary">
-                    <i class="fas fa-plus me-2"></i>Cadastrar Nova Sala
+                    <i class="fas fa-plus me-2"></i>Cadastrar Primeira Sala
                 </a>
                 {% endif %}
             </div>

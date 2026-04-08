@@ -5,7 +5,7 @@ from flask import Flask, Response
 
 app = Flask(__name__)
 
-def generate_qr_code(url, classroom_name):
+def generate_qr_code(url, classroom_name, school_name="SENAI"):
     """Generate QR code with classroom information"""
     # Create QR code
     qr = qrcode.QRCode(
@@ -49,7 +49,7 @@ def generate_qr_code(url, classroom_name):
             font_subtitle = ImageFont.load_default()
     
     # School name
-    school_text = "SENAI Morvan Figueiredo"
+    school_text = school_name
     bbox = draw.textbbox((0, 0), school_text, font=font_title)
     text_width = bbox[2] - bbox[0]
     x = (new_width - text_width) // 2

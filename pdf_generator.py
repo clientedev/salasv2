@@ -30,13 +30,13 @@ def create_header_style():
     
     return title_style, subtitle_style
 
-def add_header(story, title, subtitle=None):
+def add_header(story, title, subtitle=None, school_name='SENAI'):
     title_style, subtitle_style = create_header_style()
     
     # School Header
-    header_text = """
+    header_text = f"""
     <para align="center">
-    <font size="20" color="#1e3a8a"><b>ESCOLA SENAI "MORVAN FIGUEIREDO"</b></font><br/>
+    <font size="20" color="#1e3a8a"><b>ESCOLA {school_name.upper()}</b></font><br/>
     <font size="12" color="#475569">Sistema de Gestão de Salas</font>
     </para>
     """
@@ -51,7 +51,7 @@ def add_header(story, title, subtitle=None):
     
     story.append(Spacer(1, 20))
 
-def generate_classroom_pdf(classroom, schedules):
+def generate_classroom_pdf(classroom, schedules, school_name='SENAI'):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
     
@@ -59,7 +59,7 @@ def generate_classroom_pdf(classroom, schedules):
     styles = getSampleStyleSheet()
     
     # Header
-    add_header(story, f"Relatório da Sala: {classroom.name}")
+    add_header(story, f"Relatório da Sala: {classroom.name}", school_name=school_name)
     
     # Classroom Information
     info_data = [
@@ -182,7 +182,7 @@ def generate_classroom_pdf(classroom, schedules):
     buffer.seek(0)
     return buffer
 
-def generate_general_report(classrooms, all_schedules):
+def generate_general_report(classrooms, all_schedules, school_name='SENAI'):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
     
@@ -190,7 +190,7 @@ def generate_general_report(classrooms, all_schedules):
     styles = getSampleStyleSheet()
     
     # Header
-    add_header(story, "Relatório Geral de Salas", f"Total de {len(classrooms)} salas cadastradas")
+    add_header(story, "Relatório Geral de Salas", f"Total de {len(classrooms)} salas cadastradas", school_name=school_name)
     
     # Create schedule map for quick lookup
     schedule_map = {}
@@ -333,7 +333,7 @@ def generate_general_report(classrooms, all_schedules):
     buffer.seek(0)
     return buffer
 
-def generate_availability_report(classrooms, schedules):
+def generate_availability_report(classrooms, schedules, school_name='SENAI'):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
     
@@ -341,7 +341,7 @@ def generate_availability_report(classrooms, schedules):
     styles = getSampleStyleSheet()
     
     # Header
-    add_header(story, "Relatório de Disponibilidade de Salas")
+    add_header(story, "Relatório de Disponibilidade de Salas", school_name=school_name)
     
     days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
     shifts = ['morning', 'afternoon', 'fullday', 'night']
@@ -361,7 +361,7 @@ def generate_availability_report(classrooms, schedules):
         data = [['Sala'] + [shift_names[shift] for shift in shifts]]
         
         for classroom in classrooms:
-            row = [f"{classroom.name} ({classroom.block}{classroom.floor})"]
+            row = [f"{classroom.name} ({classroom.block})"]
             
             for shift in shifts:
                 # Skip night shift for Saturday

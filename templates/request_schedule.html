@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Solicitar Horário - {{ classroom.name }} - SENAI Morvan Figueiredo{% endblock %}
+{% block title %}Solicitar Horário - {{ classroom.name }} - {{ session.get('active_school_name', 'SENAI') }}{% endblock %}
 
 {% block content %}
 <div class="container">
