@@ -1,0 +1,106 @@
+
+{% extends "base.html" %}
+
+{% block title %}Selecionar Escola - Sistema de Salas{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 text-center mb-5">
+            <h1 class="display-4 fw-bold">Bem-vindo</h1>
+            <p class="lead">Por favor, selecione a escola que deseja acessar para ver a disponibilidade das salas.</p>
+        </div>
+    </div>
+
+    <div class="row justify-content-center g-4">
+        {% for school in schools %}
+        <div class="col-md-5">
+            <div class="card h-100 border-0 shadow-sm hover-elevate">
+                <div class="card-body p-5 text-center d-flex flex-column justify-content-center align-items-center">
+                    <div class="school-icon">
+                        {% if school.logo_data %}
+                        <img src="{{ url_for('serve_school_logo', school_id=school.id) }}" 
+                             alt="Logo {{ school.name }}" class="school-logo-img"
+                             onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
+                        <i class="fas fa-school fa-3x text-primary" style="display:none"></i>
+                        {% else %}
+                        <i class="fas fa-school fa-3x text-primary"></i>
+                        {% endif %}
+                    </div>
+                    <h2 class="h3 card-title mb-4">{{ school.name }}</h2>
+                    <a href="{{ url_for('set_active_school', school_id=school.id) }}" class="btn btn-primary btn-lg w-100">
+                        Acessar Unidade
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        
+        {% if not schools %}
+        <div class="col-md-6 text-center">
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>Nenhuma escola cadastrada no sistema.
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+    .school-logo-container {
+        width: 150px !important;
+        height: 150px !important;
+        margin: 0 auto 20px !important;
+        border-radius: 50% !important;
+        overflow: hidden !important;
+        border: 4px solid #fff !important;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.15) !important;
+        background: #fff !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        position: relative !important;
+    }
+    .school-logo-img {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
+        border-radius: 50% !important;
+    }
+    .school-icon {
+        width: 140px;
+        height: 140px;
+        background-color: rgba(13, 110, 253, 0.05);
+        border: 4px solid rgba(13, 110, 253, 0.1);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        margin: 0 auto 1.5rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+    }
+    .hover-elevate:hover .school-icon {
+        transform: scale(1.05);
+        border-color: rgba(13, 110, 253, 0.3);
+        box-shadow: 0 8px 25px rgba(13, 110, 253, 0.15);
+    }
+    .hover-elevate {
+        transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+        border-radius: 20px;
+    }
+    .hover-elevate:hover {
+        transform: translateY(-12px);
+        box-shadow: 0 20px 40px rgba(0,0,0,0.12)!important;
+    }
+    .glass-card {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    [data-bs-theme="dark"] .glass-card {
+        background: rgba(33, 37, 41, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+{% endblock %}
