@@ -1,2 +1,2 @@
 #!/bin/bash
-uv run gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app
+uv run gunicorn --bind 0.0.0.0:${PORT:-5000} --reuse-port main:app
