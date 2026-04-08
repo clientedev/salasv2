@@ -1,9 +1,9 @@
 import os
 import sys
 import json
-from flask import render_template, request, redirect, url_for, flash, session, jsonify, send_file, make_response
+from flask import render_template, request, redirect, url_for, flash, session, jsonify, send_file, make_response, abort
 from app import app, db
-from models import Classroom, Schedule, Incident, ScheduleRequest
+from models import School, Classroom, Schedule, Incident, ScheduleRequest
 from datetime import datetime, timedelta
 
 # OpenAI integration
@@ -55,6 +55,14 @@ except ImportError as e:
     EXCEL_AVAILABLE = False
 
 ADMIN_PASSWORD = "senai103103"
+# Helper to get the active school from session
+def get_active_school():
+    """Returns the current active school or None if not selected"""
+    school_id = session.get('active_school_id')
+    if not school_id:
+        return None
+    return School.query.get(school_id)
+
 # All files are now stored in PostgreSQL database, no local file storage
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 ALLOWED_EXCEL_EXTENSIONS = {'xlsx', 'xls'}
@@ -79,8 +87,38 @@ def require_admin_auth(f):
 
 @app.route('/')
 def index():
-    classrooms = Classroom.query.all()
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+    
+    classrooms = Classroom.query.filter_by(school_id=active_school.id).all()
     return render_template('index.html', classrooms=classrooms)
+
+@app.route('/select_school')
+def select_school():
+    schools = School.query.all()
+    # Support for first-time automated setup if no schools exist
+    if not schools:
+        try:
+            default_school = School(name="SENAI Morvan Figueiredo", admin_password="senai103103")
+            db.session.add(default_school)
+            db.session.commit()
+            schools = [default_school]
+        except Exception as e:
+            import logging
+            logging.error(f"Error creating default school: {e}")
+            
+    return render_template('select_school.html', schools=schools)
+
+@app.route('/set_active_school/<int:school_id>')
+def set_active_school(school_id):
+    school = School.query.get_or_404(school_id)
+    session['active_school_id'] = school.id
+    session['active_school_name'] = school.name
+    # Logout admin when switching schools to maintain isolation
+    session.pop('admin_authenticated', None)
+    flash(f'Bem-vindo ao {school.name}!', 'success')
+    return redirect(url_for('index'))
 
 @app.route('/classroom/<int:classroom_id>')
 def classroom_detail(classroom_id):
@@ -93,7 +131,11 @@ def classroom_detail(classroom_id):
     course_filter = request.args.get('course_name', '')
     date_filter_str = request.args.get('date', '')
     
-    classroom = Classroom.query.get_or_404(classroom_id)
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+        
+    classroom = Classroom.query.filter_by(id=classroom_id, school_id=active_school.id).first_or_404()
 
     # Only show active schedules where courses haven't ended yet
     query = Schedule.query.filter_by(classroom_id=classroom_id, is_active=True)
@@ -192,9 +234,14 @@ def classroom_detail(classroom_id):
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+        
     if request.method == 'POST':
         password = request.form.get('password')
-        if password == ADMIN_PASSWORD:
+        # Check against active school's password
+        if password == active_school.admin_password:
             session['admin_authenticated'] = True
             session.permanent = True
             app.permanent_session_lifetime = timedelta(hours=2)
@@ -231,6 +278,8 @@ def not_found_error(error):
 @app.errorhandler(500)
 def internal_error(error):
     """Página personalizada para erro 500"""
+    import logging
+    logging.error(f"Internal Server Error: {error}")
     db.session.rollback()
     return render_template('errors/500.html'), 500
 
@@ -242,9 +291,16 @@ def forbidden_error(error):
 @app.route('/edit_classroom/<int:classroom_id>', methods=['GET', 'POST'])
 @require_admin_auth
 def edit_classroom(classroom_id):
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+        
     current_date = get_brazil_time().date()
     
     classroom = Classroom.query.get_or_404(classroom_id)
+    if classroom.school_id != active_school.id:
+        flash('Acesso negado: esta sala não pertence à sua unidade.', 'error')
+        return redirect(url_for('index'))
     
     # Only show active schedules where courses haven't ended yet
     schedules = Schedule.query.filter_by(classroom_id=classroom_id, is_active=True).filter(
@@ -303,8 +359,14 @@ def edit_classroom(classroom_id):
 
 @app.route('/download_excel/<int:classroom_id>')
 def download_excel(classroom_id):
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     try:
         classroom = Classroom.query.get_or_404(classroom_id)
+        if classroom.school_id != active_school.id:
+            flash('Acesso negado.', 'error')
+            return redirect(url_for('index'))
         
         if not classroom.excel_data:
             flash('Nenhum arquivo Excel disponível para esta sala.', 'error')
@@ -324,8 +386,12 @@ def download_excel(classroom_id):
 @app.route('/image/<int:classroom_id>')
 def serve_image(classroom_id):
     """Serve images from PostgreSQL database"""
+    active_school = get_active_school()
     try:
         classroom = Classroom.query.get_or_404(classroom_id)
+        if not active_school or classroom.school_id != active_school.id:
+            from flask import abort
+            abort(404)
         
         if not classroom.image_data:
             # Return default image or 404
@@ -343,7 +409,13 @@ def serve_image(classroom_id):
 @app.route('/upload_excel/<int:classroom_id>', methods=['POST'])
 @require_admin_auth
 def upload_excel(classroom_id):
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     classroom = Classroom.query.get_or_404(classroom_id)
+    if classroom.school_id != active_school.id:
+        flash('Acesso negado.', 'error')
+        return redirect(url_for('index'))
     
     if 'excel_file' not in request.files:
         flash('Nenhum arquivo selecionado.', 'error')
@@ -375,10 +447,18 @@ def upload_excel(classroom_id):
     
     return redirect(url_for('edit_classroom', classroom_id=classroom_id))
 
-@app.route('/delete_schedule/<int:schedule_id>', methods=['POST'])
+@app.route('/delete_schedule/<int:schedule_id>', methods=['POST', 'GET'])
 @require_admin_auth
 def delete_schedule(schedule_id):
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+        
     schedule = Schedule.query.get_or_404(schedule_id)
+    classroom = Classroom.query.get(schedule.classroom_id)
+    if not classroom or classroom.school_id != active_school.id:
+        flash('Acesso negado.', 'error')
+        return redirect(url_for('index'))
     classroom_id = schedule.classroom_id
     
     try:
@@ -394,6 +474,7 @@ def delete_schedule(schedule_id):
 @app.route('/add_incident/<int:classroom_id>', methods=['POST'])
 def add_incident(classroom_id):
     classroom = Classroom.query.get_or_404(classroom_id)
+    # No school check here as it's public, but it's bound to the classroom's school.
     
     try:
         reporter_name = request.form.get('reporter_name', '').strip()
@@ -429,7 +510,14 @@ def add_incident(classroom_id):
 @app.route('/hide_incident_from_classroom/<int:incident_id>', methods=['POST'])
 @require_admin_auth
 def hide_incident_from_classroom(incident_id):
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     incident = Incident.query.get_or_404(incident_id)
+    classroom = Classroom.query.get(incident.classroom_id)
+    if not classroom or classroom.school_id != active_school.id:
+        flash('Acesso negado.', 'error')
+        return redirect(url_for('incidents_management'))
     classroom_id = incident.classroom_id
     
     try:
@@ -480,7 +568,14 @@ def hide_incident_from_classroom(incident_id):
 @app.route('/delete_incident/<int:incident_id>', methods=['POST'])
 @require_admin_auth
 def delete_incident(incident_id):
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     incident = Incident.query.get_or_404(incident_id)
+    classroom = Classroom.query.get(incident.classroom_id)
+    if not classroom or classroom.school_id != active_school.id:
+        flash('Acesso negado.', 'error')
+        return redirect(url_for('incidents_management'))
     
     # Check where we're coming from to redirect properly
     referrer = request.form.get('referrer', 'incidents_management')
@@ -524,6 +619,9 @@ def migrate_database():
 @app.route('/incidents_management')
 @require_admin_auth
 def incidents_management():
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     """Admin panel for managing all incidents with filters"""
     try:
         # Get filter parameters
@@ -534,40 +632,35 @@ def incidents_management():
         # Use raw SQL to avoid SQLAlchemy model issues with missing columns
         from sqlalchemy import text
         
-        # Use simplified SQL with COALESCE to handle missing column gracefully
-        base_sql = """
-            SELECT id, classroom_id, reporter_name, reporter_email, description, 
-                   created_at, is_active, is_resolved, admin_response, response_date,
-                   COALESCE(hidden_from_classroom, FALSE) as hidden_from_classroom
-        """
-        where_clause = "WHERE is_active = true AND COALESCE(hidden_from_classroom, FALSE) = FALSE"
-        
-        # Add filters to WHERE clause
-        filter_conditions = []
-        params = {}
+        # Build query dynamically but safely
+        params = {'school_id': active_school.id, 'true_val': True, 'false_val': False}
+        conditions = ["incident.is_active = :true_val", "COALESCE(incident.hidden_from_classroom, :false_val) = :false_val", "classroom.school_id = :school_id"]
         
         if status_filter == 'pending':
-            filter_conditions.append("is_resolved = false")
+            conditions.append("incident.is_resolved = :false_val")
         elif status_filter == 'resolved':
-            filter_conditions.append("is_resolved = true")
+            conditions.append("incident.is_resolved = :true_val")
         
         if reporter_filter:
-            filter_conditions.append("LOWER(reporter_name) LIKE LOWER(:reporter_filter)")
+            conditions.append("LOWER(incident.reporter_name) LIKE LOWER(:reporter_filter)")
             params['reporter_filter'] = f'%{reporter_filter}%'
         
         if classroom_filter:
             try:
-                classroom_id = int(classroom_filter)
-                filter_conditions.append("classroom_id = :classroom_id")
-                params['classroom_id'] = classroom_id
+                conditions.append("incident.classroom_id = :classroom_id")
+                params['classroom_id'] = int(classroom_filter)
             except ValueError:
                 pass
         
-        # Complete SQL query
-        if filter_conditions:
-            full_sql = f"{base_sql} FROM incident {where_clause} AND {' AND '.join(filter_conditions)} ORDER BY created_at DESC"
-        else:
-            full_sql = f"{base_sql} FROM incident {where_clause} ORDER BY created_at DESC"
+        incident_query = f"""
+            SELECT incident.id, incident.classroom_id, incident.reporter_name, incident.reporter_email, incident.description,
+                   incident.created_at, incident.is_active, incident.is_resolved, incident.admin_response, incident.response_date,
+                   COALESCE(incident.hidden_from_classroom, 0) as hidden_from_classroom
+            FROM incident
+            JOIN classroom ON incident.classroom_id = classroom.id
+            WHERE {' AND '.join(conditions)}
+            ORDER BY incident.created_at DESC
+        """
         
         # Execute query and convert to incident objects
         with db.engine.connect() as conn:
@@ -578,22 +671,32 @@ def incidents_management():
             except:
                 pass
                 
-            result = conn.execute(text(full_sql), params)
+            result = conn.execute(text(incident_query), params)
             incident_rows = result.fetchall()
         
         # Convert to Incident-like objects for template compatibility
         class IncidentProxy:
             def __init__(self, row):
+                from datetime import datetime as _dt
+                def _parse_dt(v):
+                    if v is None or isinstance(v, _dt):
+                        return v
+                    for fmt in ('%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+                        try:
+                            return _dt.strptime(str(v), fmt)
+                        except ValueError:
+                            continue
+                    return v  # return as-is if unparseable
                 self.id = row[0]
                 self.classroom_id = row[1]
                 self.reporter_name = row[2]
                 self.reporter_email = row[3]
                 self.description = row[4]
-                self.created_at = row[5]
+                self.created_at = _parse_dt(row[5])
                 self.is_active = row[6]
                 self.is_resolved = row[7]
                 self.admin_response = row[8]
-                self.response_date = row[9]
+                self.response_date = _parse_dt(row[9])
                 if len(row) > 10:
                     self.hidden_from_classroom = row[10]
                 else:
@@ -615,27 +718,33 @@ def incidents_management():
                 
             pending_result = conn.execute(text("""
                 SELECT COUNT(*) FROM incident 
-                WHERE is_active = true AND is_resolved = false 
-                AND COALESCE(hidden_from_classroom, FALSE) = FALSE
-            """))
+                JOIN classroom ON incident.classroom_id = classroom.id
+                WHERE incident.is_active = :true_val AND incident.is_resolved = :false_val
+                AND COALESCE(incident.hidden_from_classroom, :false_val) = :false_val
+                AND classroom.school_id = :school_id
+            """), {'school_id': active_school.id, 'true_val': True, 'false_val': False})
             resolved_result = conn.execute(text("""
                 SELECT COUNT(*) FROM incident 
-                WHERE is_active = true AND is_resolved = true 
-                AND COALESCE(hidden_from_classroom, FALSE) = FALSE
-            """))
+                JOIN classroom ON incident.classroom_id = classroom.id
+                WHERE incident.is_active = :true_val AND incident.is_resolved = :true_val
+                AND COALESCE(incident.hidden_from_classroom, :false_val) = :false_val
+                AND classroom.school_id = :school_id
+            """), {'school_id': active_school.id, 'true_val': True, 'false_val': False})
             
             pending_count = pending_result.scalar()
             resolved_count = resolved_result.scalar()
         
         # Get classrooms and reporters using safe queries
-        classrooms = Classroom.query.all()
+        classrooms = Classroom.query.filter_by(school_id=active_school.id).all()
         
         with db.engine.connect() as conn:
             reporters_result = conn.execute(text("""
-                SELECT DISTINCT reporter_name FROM incident 
-                WHERE is_active = true 
-                AND COALESCE(hidden_from_classroom, FALSE) = FALSE
-            """))
+                SELECT DISTINCT incident.reporter_name FROM incident 
+                JOIN classroom ON incident.classroom_id = classroom.id
+                WHERE incident.is_active = :true_val
+                AND COALESCE(incident.hidden_from_classroom, :false_val) = :false_val
+                AND classroom.school_id = :school_id
+            """), {'school_id': active_school.id, 'true_val': True, 'false_val': False})
             reporters = [row[0] for row in reporters_result.fetchall()]
         
         return render_template('incidents_management.html', 
@@ -659,7 +768,14 @@ def incidents_management():
 @require_admin_auth
 def respond_incident(incident_id):
     """Admin response to an incident"""
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     incident = Incident.query.get_or_404(incident_id)
+    classroom = Classroom.query.get(incident.classroom_id)
+    if not classroom or classroom.school_id != active_school.id:
+        flash('Acesso negado.', 'error')
+        return redirect(url_for('incidents_management'))
     
     try:
         admin_response = request.form.get('admin_response', '').strip()
@@ -690,7 +806,14 @@ def respond_incident(incident_id):
 @require_admin_auth
 def resolve_incident(incident_id):
     """Mark an incident as resolved"""
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     incident = Incident.query.get_or_404(incident_id)
+    classroom = Classroom.query.get(incident.classroom_id)
+    if not classroom or classroom.school_id != active_school.id:
+        flash('Acesso negado.', 'error')
+        return redirect(url_for('incidents_management'))
     
     try:
         incident.is_resolved = True
@@ -706,6 +829,10 @@ def resolve_incident(incident_id):
 @app.route('/incidents_pdf_report')
 @require_admin_auth
 def incidents_pdf_report():
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+        
     """Generate PDF report of incidents with filters"""
     try:
         # Get the same filters as incidents_management
@@ -717,11 +844,11 @@ def incidents_pdf_report():
         from sqlalchemy import text
         
         # Use simplified SQL with COALESCE for PDF report
-        where_clause = "WHERE is_active = true AND COALESCE(hidden_from_classroom, FALSE) = FALSE"
+        where_clause = "WHERE incident.is_active = true AND COALESCE(incident.hidden_from_classroom, FALSE) = FALSE AND classroom.school_id = :school_id"
         
         # Add filters
         filter_conditions = []
-        params = {}
+        params = {'school_id': active_school.id}
         
         if status_filter == 'pending':
             filter_conditions.append("is_resolved = false")
@@ -742,9 +869,9 @@ def incidents_pdf_report():
         
         # Complete SQL
         if filter_conditions:
-            full_sql = f"SELECT id FROM incident {where_clause} AND {' AND '.join(filter_conditions)} ORDER BY created_at DESC"
+            full_sql = f"SELECT incident.id FROM incident JOIN classroom ON incident.classroom_id = classroom.id {where_clause} AND {' AND '.join(filter_conditions)} ORDER BY created_at DESC"
         else:
-            full_sql = f"SELECT id FROM incident {where_clause} ORDER BY created_at DESC"
+            full_sql = f"SELECT incident.id FROM incident JOIN classroom ON incident.classroom_id = classroom.id {where_clause} ORDER BY created_at DESC"
         
         # Get incident data directly to avoid SQLAlchemy issues
         with db.engine.connect() as conn:
@@ -757,13 +884,15 @@ def incidents_pdf_report():
                 
             # Get full incident data
             full_data_sql = f"""
-                SELECT id, classroom_id, reporter_name, reporter_email, description, 
-                       created_at, is_active, is_resolved, admin_response, response_date
-                FROM incident {where_clause}
+                SELECT incident.id, incident.classroom_id, incident.reporter_name, incident.reporter_email, incident.description, 
+                       incident.created_at, incident.is_active, incident.is_resolved, incident.admin_response, incident.response_date
+                FROM incident 
+                JOIN classroom ON incident.classroom_id = classroom.id
+                {where_clause}
             """
             if filter_conditions:
                 full_data_sql += f" AND {' AND '.join(filter_conditions)}"
-            full_data_sql += " ORDER BY created_at DESC"
+            full_data_sql += " ORDER BY incident.created_at DESC"
             
             result = conn.execute(text(full_data_sql), params)
             incident_data = result.fetchall()
@@ -808,7 +937,7 @@ def incidents_pdf_report():
         normal_style = styles['Normal']
         
         # Add title
-        title = Paragraph("Relatório de Ocorrências - SENAI Morvan Figueiredo", title_style)
+        title = Paragraph(f"Relatório de Ocorrências - {active_school.name}", title_style)
         elements.append(title)
         
         # Add generation date
@@ -995,6 +1124,10 @@ def migrate_uploads_to_db():
 @app.route('/add_classroom', methods=['GET', 'POST'])
 @require_admin_auth
 def add_classroom():
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+        
     if request.method == 'POST':
         try:
             # Handle image upload with PostgreSQL storage
@@ -1017,7 +1150,8 @@ def add_classroom():
                 description=request.form.get('description', ''),
                 block=request.form.get('block', ''),
                 image_filename=image_filename,
-                admin_password=request.form.get('admin_password', '')
+                admin_password=request.form.get('admin_password', ''),
+                school_id=active_school.id
             )
             
             # Set image data after creation
@@ -1091,6 +1225,9 @@ def add_classroom():
 @app.route('/schedule_management')
 @require_admin_auth
 def schedule_management():
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     # Get filters
     classroom_id = request.args.get('classroom_id', type=int)
     day_of_week = request.args.get('day_of_week')
@@ -1099,7 +1236,7 @@ def schedule_management():
     instructor = request.args.get('instructor', '')
     
     current_date = get_brazil_time().date()
-    query = Schedule.query.filter_by(is_active=True)
+    query = Schedule.query.join(Classroom).filter(Classroom.school_id == active_school.id, Schedule.is_active == True)
     
     # Filter out expired courses
     query = query.filter(
@@ -1126,7 +1263,7 @@ def schedule_management():
     pagination = query.order_by(Schedule.day_of_week, Schedule.shift).paginate(page=page, per_page=per_page, error_out=False)
     schedules = pagination.items
     
-    classrooms = Classroom.query.all()
+    classrooms = Classroom.query.filter_by(school_id=active_school.id).all()
     
     # Organize schedules by classroom and day for any legacy template usage if needed
     # but the management template usually lists them linearly now
@@ -1154,8 +1291,16 @@ def schedule_management():
 @app.route('/add_schedule', methods=['POST'])
 @require_admin_auth
 def add_schedule():
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     try:
         classroom_id = int(request.form.get('classroom_id') or 0)
+        # Security check: ensure classroom belongs to active school
+        classroom = Classroom.query.get(classroom_id)
+        if not classroom or classroom.school_id != active_school.id:
+            flash('Acesso negado: esta sala não pertence à escola ativa.', 'error')
+            return redirect(url_for('schedule_management'))
         days = request.form.getlist('days')
         
         # Handle single day submissions from first modal
@@ -1264,8 +1409,14 @@ def add_schedule():
 @app.route('/delete_classroom/<int:classroom_id>', methods=['POST'])
 @require_admin_auth
 def delete_classroom(classroom_id):
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     try:
         classroom = Classroom.query.get_or_404(classroom_id)
+        if classroom.school_id != active_school.id:
+            flash('Acesso negado: esta sala não pertence à escola ativa.', 'error')
+            return redirect(url_for('index'))
         classroom_name = classroom.name
         
         # Delete all associated schedules and incidents
@@ -1286,7 +1437,11 @@ def delete_classroom(classroom_id):
 
 @app.route('/dashboard')
 def dashboard():
-    # Get filter parameters
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+        
+    # Get filters
     block_filter = request.args.get('block', '')
     instructor_filter = request.args.get('instructor', '')
     software_filter = request.args.get('software', '')
@@ -1299,7 +1454,7 @@ def dashboard():
     # Build classroom query with filters
     course_name_filter = request.args.get('course_name', '')
     
-    classroom_query = Classroom.query
+    classroom_query = Classroom.query.filter_by(school_id=active_school.id)
     if block_filter:
         classroom_query = classroom_query.filter(Classroom.block.contains(block_filter))
     if software_filter:
@@ -1354,7 +1509,10 @@ def dashboard():
         week_monday = current_date - timedelta(days=days_since_monday)
         week_sunday = week_monday + timedelta(days=6)
     
-    schedule_query = Schedule.query.filter_by(is_active=True)
+    schedule_query = Schedule.query.join(Classroom).filter(
+        Classroom.school_id == active_school.id,
+        Schedule.is_active == True
+    )
     
     # Filter out expired courses - only show courses that haven't ended yet OR courses running in the selected week
     if week_filter:
@@ -1411,9 +1569,12 @@ def dashboard():
     occupancy_rate = (occupied_slots / total_slots * 100) if total_slots > 0 else 0
     
     # Get unique filter options
-    all_classrooms = Classroom.query.all()
+    all_classrooms = Classroom.query.filter_by(school_id=active_school.id).all()
     blocks = sorted(list(set(c.block for c in all_classrooms if c.block)))
-    all_schedules = Schedule.query.filter_by(is_active=True).all()
+    all_schedules = Schedule.query.join(Classroom).filter(
+        Classroom.school_id == active_school.id,
+        Schedule.is_active == True
+    ).all()
     instructors = sorted(list(set(s.instructor for s in all_schedules if s.instructor and s.instructor.strip())))
     software_list = sorted(list(set(software.strip() for c in all_classrooms if c.software for software in c.software.split(',') if software.strip())))
     
@@ -1500,7 +1661,7 @@ def get_current_shift():
     print(f"DEBUG: Current active shifts: {current_shifts}")
     return current_shifts
 
-def get_availability_for_date(target_date=None, shift_filter=None):
+def get_availability_for_date(target_date=None, shift_filter=None, school_id=None):
     """Helper function to get room availability for a specific date and optional shift"""
     if target_date is None:
         target_date = get_brazil_time()
@@ -1509,7 +1670,11 @@ def get_availability_for_date(target_date=None, shift_filter=None):
     target_day = target_date.weekday()
     target_date_only = target_date.date()
     
-    classrooms = Classroom.query.all()
+    if school_id:
+        classrooms = Classroom.query.filter_by(school_id=school_id).all()
+    else:
+        # Fallback to all if no school_id provided (though we should avoid this)
+        classrooms = Classroom.query.all()
     
     print(f"DEBUG: Checking availability for date: {target_date_only}, day of week: {target_day}")
     
@@ -1555,7 +1720,12 @@ def get_availability_for_date(target_date=None, shift_filter=None):
             
             if primary_shift:
                 # Get schedules for the primary shift only - PRECISE DATE CHECKING
-                all_schedules = Schedule.query.filter_by(
+                all_schedules = Schedule.query.join(Classroom).filter(
+                    Classroom.school_id == school_id,
+                    Schedule.day_of_week == target_day,
+                    Schedule.shift == primary_shift,
+                    Schedule.is_active == True
+                ).all() if school_id else Schedule.query.filter_by(
                     day_of_week=target_day,
                     shift=primary_shift,
                     is_active=True
@@ -1581,7 +1751,12 @@ def get_availability_for_date(target_date=None, shift_filter=None):
                 # CRITICAL LOGIC: Only add fullday schedules if we're checking for CURRENT time
                 # This prevents fullday classes from appearing when user filters by specific shift
                 if primary_shift in ['morning', 'afternoon'] and target_date.date() == get_brazil_time().date():
-                    all_fullday_schedules = Schedule.query.filter_by(
+                    all_fullday_schedules = Schedule.query.join(Classroom).filter(
+                        Classroom.school_id == school_id,
+                        Schedule.day_of_week == target_day,
+                        Schedule.shift == 'fullday',
+                        Schedule.is_active == True
+                    ).all() if school_id else Schedule.query.filter_by(
                         day_of_week=target_day,
                         shift='fullday',
                         is_active=True
@@ -1605,7 +1780,11 @@ def get_availability_for_date(target_date=None, shift_filter=None):
         else:
             # For other dates (future/past), check ALL shifts to get complete availability picture
             print(f"DEBUG: Checking NON-CURRENT date {target_date_only} - checking ALL shifts for complete availability")
-            all_schedules = Schedule.query.filter_by(day_of_week=target_day, is_active=True).all()
+            all_schedules = Schedule.query.join(Classroom).filter(
+                Classroom.school_id == school_id,
+                Schedule.day_of_week == target_day,
+                Schedule.is_active == True
+            ).all() if school_id else Schedule.query.filter_by(day_of_week=target_day, is_active=True).all()
             
             active_schedules = []
             for schedule in all_schedules:
@@ -1626,7 +1805,12 @@ def get_availability_for_date(target_date=None, shift_filter=None):
         print(f"DEBUG: PRECISE FILTER MODE - Looking for shift '{shift_filter}' on {target_date_only}")
         
         # Get schedules that EXACTLY match the requested shift
-        all_schedules = Schedule.query.filter_by(
+        all_schedules = Schedule.query.join(Classroom).filter(
+            Classroom.school_id == school_id,
+            Schedule.day_of_week == target_day,
+            Schedule.shift == shift_filter,
+            Schedule.is_active == True
+        ).all() if school_id else Schedule.query.filter_by(
             day_of_week=target_day,
             shift=shift_filter,
             is_active=True
@@ -1652,7 +1836,12 @@ def get_availability_for_date(target_date=None, shift_filter=None):
             print(f"DEBUG: Checking if any fullday classes conflict with '{shift_filter}' filter")
             
             # Get fullday schedules for this day
-            all_fullday_schedules = Schedule.query.filter_by(
+            all_fullday_schedules = Schedule.query.join(Classroom).filter(
+                Classroom.school_id == school_id,
+                Schedule.day_of_week == target_day,
+                Schedule.shift == 'fullday',
+                Schedule.is_active == True
+            ).all() if school_id else Schedule.query.filter_by(
                 day_of_week=target_day,
                 shift='fullday',
                 is_active=True
@@ -1709,6 +1898,9 @@ def get_availability_for_date(target_date=None, shift_filter=None):
 
 @app.route('/available_now')
 def available_now():
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     # Get query parameters for date and shift filtering
     date_param = request.args.get('date')
     shift_param = request.args.get('shift', 'all')
@@ -1724,7 +1916,7 @@ def available_now():
         target_date = get_brazil_time()
     
     # Get availability data
-    availability_data = get_availability_for_date(target_date, shift_param)
+    availability_data = get_availability_for_date(target_date, shift_param, school_id=active_school.id)
     
     # Format date for display
     formatted_date = target_date.strftime('%d/%m/%Y')
@@ -1746,10 +1938,15 @@ def generate_pdf(classroom_id):
         return redirect(url_for('classroom_detail', classroom_id=classroom_id))
         
     classroom = Classroom.query.get_or_404(classroom_id)
+    active_school = get_active_school()
+    if not active_school or classroom.school_id != active_school.id:
+        flash('Acesso negado: esta sala não pertence à escola ativa.', 'error')
+        return redirect(url_for('index'))
+        
     schedules = Schedule.query.filter_by(classroom_id=classroom_id, is_active=True).all()
     
     try:
-        pdf_buffer = generate_classroom_pdf(classroom, schedules)
+        pdf_buffer = generate_classroom_pdf(classroom, schedules, school_name=active_school.name)
         
         return send_file(
             io.BytesIO(pdf_buffer.getvalue()),
@@ -1767,11 +1964,18 @@ def generate_general_report_route():
         flash('Geração de relatórios não está disponível no momento.', 'error')
         return redirect(url_for('dashboard'))
         
-    try:
-        classrooms = Classroom.query.all()
-        schedules = Schedule.query.filter_by(is_active=True).all()
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
         
-        pdf_buffer = generate_general_report(classrooms, schedules)
+    try:
+        classrooms = Classroom.query.filter_by(school_id=active_school.id).all()
+        schedules = Schedule.query.join(Classroom).filter(
+            Classroom.school_id == active_school.id,
+            Schedule.is_active == True
+        ).all()
+        
+        pdf_buffer = generate_general_report(classrooms, schedules, school_name=active_school.name)
         
         return send_file(
             io.BytesIO(pdf_buffer.getvalue()),
@@ -1789,11 +1993,18 @@ def generate_availability_report_route():
         flash('Geração de relatórios não está disponível no momento.', 'error')
         return redirect(url_for('dashboard'))
         
-    try:
-        classrooms = Classroom.query.all()
-        schedules = Schedule.query.filter_by(is_active=True).all()
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
         
-        pdf_buffer = generate_availability_report(classrooms, schedules)
+    try:
+        classrooms = Classroom.query.filter_by(school_id=active_school.id).all()
+        schedules = Schedule.query.join(Classroom).filter(
+            Classroom.school_id == active_school.id,
+            Schedule.is_active == True
+        ).all()
+        
+        pdf_buffer = generate_availability_report(classrooms, schedules, school_name=active_school.name)
         
         return send_file(
             io.BytesIO(pdf_buffer.getvalue()),
@@ -1817,7 +2028,10 @@ def generate_qr(classroom_id):
         # Generate the full URL for the classroom
         classroom_url = request.url_root.rstrip('/') + url_for('classroom_detail', classroom_id=classroom_id)
         
-        qr_buffer = generate_qr_code(classroom_url, classroom.name)
+        active_school = get_active_school()
+        school_name = active_school.name if active_school else "SENAI"
+        
+        qr_buffer = generate_qr_code(classroom_url, classroom.name, school_name=school_name)
         safe_filename = f'qr_sala_{classroom.name.replace(" ", "_").replace("/", "_")}.png'
         
         return send_file(
@@ -1832,7 +2046,11 @@ def generate_qr(classroom_id):
 
 # Exportação para Excel - versão corrigida
 @app.route('/export_excel')
+@require_admin_auth
 def export_excel():
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     try:
         # Check if openpyxl is available
         if not openpyxl:
@@ -1866,7 +2084,7 @@ def export_excel():
                     cell.alignment = Alignment(horizontal='center')
         
         # Data for classrooms
-        classrooms = Classroom.query.all()
+        classrooms = Classroom.query.filter_by(school_id=active_school.id).all()
         for row, classroom in enumerate(classrooms, 2):
             ws1.cell(row=row, column=1).value = classroom.id
             ws1.cell(row=row, column=2).value = classroom.name
@@ -1911,7 +2129,7 @@ def export_excel():
                     cell.alignment = Alignment(horizontal='center')
         
         # Data for schedules
-        schedules = Schedule.query.all()
+        schedules = Schedule.query.join(Classroom).filter(Classroom.school_id == active_school.id).all()
         days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
         shifts = {'morning': 'Manhã', 'afternoon': 'Tarde', 'fullday': 'Integral', 'night': 'Noite'}
         
@@ -2002,7 +2220,12 @@ def export_excel():
         return redirect(url_for('dashboard'))
 
 @app.route('/export_filtered_excel')
+@require_admin_auth
 def export_filtered_excel():
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+        
     try:
         # Get the same filters as dashboard
         block_filter = request.args.get('block', '')
@@ -2013,7 +2236,7 @@ def export_filtered_excel():
         shift_filter = request.args.get('shift', '')
         
         # Build filtered queries
-        classroom_query = Classroom.query
+        classroom_query = Classroom.query.filter_by(school_id=active_school.id)
         if block_filter:
             classroom_query = classroom_query.filter(Classroom.block == block_filter)
         # Remove floor filter as it doesn't exist in the model
@@ -2036,7 +2259,7 @@ def export_filtered_excel():
         filtered_classrooms = classroom_query.all()
         
         # Build schedule query with filters
-        schedule_query = Schedule.query.filter_by(is_active=True)
+        schedule_query = Schedule.query.join(Classroom).filter(Classroom.school_id == active_school.id, Schedule.is_active == True)
         if day_filter:
             schedule_query = schedule_query.filter(Schedule.day_of_week == int(day_filter))
         if shift_filter:
@@ -2227,10 +2450,14 @@ def submit_schedule_request():
 @app.route('/admin/schedule_requests')
 @require_admin_auth
 def admin_schedule_requests():
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+        
     """Admin page to view and manage schedule requests"""
     status_filter = request.args.get('status', 'pending')
     
-    query = ScheduleRequest.query
+    query = ScheduleRequest.query.join(Classroom).filter(Classroom.school_id == active_school.id)
     if status_filter and status_filter != 'all':
         query = query.filter(ScheduleRequest.status == status_filter)
     
@@ -2244,8 +2471,15 @@ def admin_schedule_requests():
 @require_admin_auth
 def admin_schedule_request_action(request_id):
     """Admin action to approve or reject schedule requests"""
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
     try:
         schedule_request = ScheduleRequest.query.get_or_404(request_id)
+        classroom = Classroom.query.get(schedule_request.classroom_id)
+        if not classroom or classroom.school_id != active_school.id:
+            flash('Acesso negado.', 'error')
+            return redirect(url_for('admin_schedule_requests'))
         # Debug: log all form data received
         import logging
         logging.info(f"Form data received: {dict(request.form)}")
@@ -2322,6 +2556,121 @@ def admin_schedule_request_action(request_id):
     
     return redirect(url_for('admin_schedule_requests'))
 
+# Unit Management Routes
+@app.route('/admin/schools')
+@require_admin_auth
+def admin_schools():
+    """List all schools for administrative management"""
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+    
+    # Only show the active school for its admin
+    schools = [active_school]
+    return render_template('admin_schools.html', schools=schools)
+
+@app.route('/school_logo/<int:school_id>')
+def serve_school_logo(school_id):
+    """Serve school logo from database"""
+    try:
+        school = School.query.get_or_404(school_id)
+        if not school.logo_data:
+            from flask import abort
+            abort(404)
+        
+        # Ensure logo_data is actually bytes and not empty
+        if len(school.logo_data) == 0:
+            from flask import abort
+            abort(404)
+        
+        return send_file(
+            io.BytesIO(school.logo_data),
+            mimetype=school.logo_mimetype or 'image/png'
+        )
+    except Exception:
+        from flask import abort
+        abort(404)
+
+@app.route('/admin/schools/add', methods=['GET', 'POST'])
+@require_admin_auth
+def add_school():
+    """Add a new school unit"""
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+        
+    if request.method == 'POST':
+        try:
+            name = request.form.get('name', '').strip()
+            admin_password = request.form.get('admin_password', '').strip()
+            
+            if not name or not admin_password:
+                flash('Nome e senha são obrigatórios.', 'error')
+                return redirect(url_for('add_school'))
+            
+            new_school = School(name=name, admin_password=admin_password)
+
+            # Handle logo upload
+            if 'logo' in request.files:
+                file = request.files['logo']
+                if file and file.filename and file.filename != '' and allowed_file(file.filename):
+                    new_school.logo_data = file.read()
+                    new_school.logo_mimetype = file.mimetype
+
+            db.session.add(new_school)
+            db.session.commit()
+            
+            flash(f'Unidade "{name}" adicionada com sucesso!', 'success')
+            return redirect(url_for('admin_schools'))
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Erro ao adicionar unidade: {str(e)}', 'error')
+            
+    return render_template('edit_school.html', school=None)
+
+@app.route('/admin/schools/edit/<int:school_id>', methods=['GET', 'POST'])
+@require_admin_auth
+def edit_school(school_id):
+    """Edit an existing school unit"""
+    active_school = get_active_school()
+    if not active_school:
+        return redirect(url_for('select_school'))
+        
+    school = School.query.get_or_404(school_id)
+    
+    if request.method == 'POST':
+        try:
+            name = request.form.get('name', '').strip()
+            admin_password = request.form.get('admin_password', '').strip()
+            
+            if not name or not admin_password:
+                flash('Nome e senha são obrigatórios.', 'error')
+                return redirect(url_for('edit_school', school_id=school_id))
+            
+            school.name = name
+            school.admin_password = admin_password
+
+            # Handle logo upload
+            if 'logo' in request.files:
+                file = request.files['logo']
+                if file and file.filename and file.filename != '' and allowed_file(file.filename):
+                    school.logo_data = file.read()
+                    school.logo_mimetype = file.mimetype
+
+            db.session.commit()
+            
+            # If editing the current school, update session name
+            if school.id == active_school.id:
+                session['active_school_name'] = school.name
+            
+            flash(f'Unidade "{name}" atualizada com sucesso!', 'success')
+            return redirect(url_for('admin_schools'))
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Erro ao atualizar unidade: {str(e)}', 'error')
+            
+    return render_template('edit_school.html', school=school)
+
 # Template filters for proper data formatting
 @app.template_filter('from_json')
 def from_json(value):
@@ -2360,17 +2709,23 @@ def virtual_assistant():
         current_hour = current_time.hour
         current_weekday = current_time.weekday()  # 0=Monday, 6=Sunday
         
-        # Get all classrooms and schedules
-        classrooms = Classroom.query.all()
-        schedules = Schedule.query.filter_by(is_active=True).filter(
-            db.or_(
-                Schedule.end_date == None,
-                Schedule.end_date >= current_date
-            )
+        # Get all classrooms and schedules for the active school
+        active_school = get_active_school()
+        if not active_school:
+            return jsonify({'response': '🏫 Por favor, selecione uma unidade escolar para que eu possa te ajudar com as salas e horários!'})
+             
+        classrooms = Classroom.query.filter_by(school_id=active_school.id).all()
+        schedules = Schedule.query.join(Classroom).filter(
+            Classroom.school_id == active_school.id,
+            Schedule.is_active == True
+        ).all()
+        incidents = Incident.query.join(Classroom).filter(
+            Classroom.school_id == active_school.id,
+            Incident.is_active == True
         ).all()
         
         # Prepare response based on user question
-        response = process_user_question(user_message, classrooms, schedules, current_time, current_date, current_hour, current_weekday)
+        response = process_user_question(user_message, classrooms, schedules, incidents, current_time, current_date, current_hour, current_weekday, active_school)
         
         return jsonify({'response': response})
         
@@ -2390,7 +2745,7 @@ def get_time_greeting(hour):
     else:
         return "Oi! 🌙"
 
-def process_user_question(user_message, classrooms, schedules, current_time, current_date, current_hour, current_weekday):
+def process_user_question(user_message, classrooms, schedules, incidents, current_time, current_date, current_hour, current_weekday, active_school):
     """Process user question and return appropriate response - Always finds something useful to say!"""
     
     # Input safety
@@ -2503,12 +2858,16 @@ def process_user_question(user_message, classrooms, schedules, current_time, cur
             return get_schedule_info_smart(classrooms, schedules)
         elif best_intent == 'contact':
             return get_contact_info()
-        elif best_intent == 'about':
-            return get_about_senai_info()
-        elif best_intent == 'help':
-            return get_general_help_response()
         elif best_intent == 'analytics':
-            return get_analytics_and_trends_smart(classrooms, schedules, current_time)
+            return get_analytics_and_trends_smart(classrooms, schedules, incidents, current_time)
+        elif best_intent == 'location':
+            return get_rooms_location_info_smart(classrooms, active_school)
+        elif best_intent == 'contact':
+            return get_contact_info(active_school)
+        elif best_intent == 'about':
+            return get_about_senai_info(active_school)
+        elif best_intent == 'help':
+            return get_general_help_response(active_school)
     
     # If no clear intent, provide intelligent fallback
     return get_emergency_helpful_response(user_message, classrooms)
@@ -2528,15 +2887,9 @@ def get_available_rooms_now_smart(classrooms, schedules, current_time, current_d
         current_hour_sp = current_sp_time.hour
         current_weekday_sp = current_sp_time.weekday()  # 0=Monday, 6=Sunday
         
-        # Query real data from database
-        all_classrooms = db.session.query(Classroom).all()
-        active_schedules = db.session.query(Schedule).filter(
-            Schedule.start_date <= current_date_sp,
-            Schedule.end_date >= current_date_sp,
-            Schedule.day_of_week == current_weekday_sp,
-            Schedule.start_time <= str(current_hour_sp),
-            Schedule.end_time > str(current_hour_sp)
-        ).all()
+        # Use provided data
+        all_classrooms = classrooms
+        active_schedules = [s for s in schedules if (s.start_date <= current_date_sp and s.end_date >= current_date_sp and s.day_of_week == current_weekday_sp and int(s.start_time) <= current_hour_sp and int(s.end_time) > current_hour_sp)]
         
         # Analyze real-time data
         available_rooms = []
@@ -2558,27 +2911,17 @@ def get_available_rooms_now_smart(classrooms, schedules, current_time, current_d
             else:
                 occupied_rooms.append((classroom, current_schedule))
         
-        # Get usage statistics for intelligent insights
-        total_schedules_today = db.session.query(Schedule).filter(
-            Schedule.start_date <= current_date_sp,
-            Schedule.end_date >= current_date_sp,
-            Schedule.day_of_week == current_weekday_sp
-        ).count()
+        # Get usage statistics
+        total_schedules_today = len([s for s in schedules if (s.start_date <= current_date_sp and s.end_date >= current_date_sp and s.day_of_week == current_weekday_sp)])
         
         # Get upcoming availability
         next_available = {}
         for room, schedule in occupied_rooms:
             if schedule:
-                next_schedules = db.session.query(Schedule).filter(
-                    Schedule.classroom_id == room.id,
-                    Schedule.start_date <= current_date_sp,
-                    Schedule.end_date >= current_date_sp,
-                    Schedule.day_of_week == current_weekday_sp,
-                    Schedule.start_time > str(current_hour_sp)
-                ).order_by(Schedule.start_time).first()
+                next_sched = next((s for s in schedules if (s.classroom_id == room.id and s.start_date <= current_date_sp and s.end_date >= current_date_sp and s.day_of_week == current_weekday_sp and int(s.start_time) > current_hour_sp)), None)
                 
-                if next_schedules:
-                    next_available[room.id] = next_schedules.start_time
+                if next_sched:
+                    next_available[room.id] = next_sched.start_time
                 else:
                     next_available[room.id] = schedule.end_time
         
@@ -2687,8 +3030,8 @@ def get_rooms_by_software_smart(user_message, classrooms):
         current_hour_sp = current_sp_time.hour
         current_weekday_sp = current_sp_time.weekday()
         
-        # Query all classrooms with real data
-        all_classrooms = db.session.query(Classroom).all()
+        # Use provided classrooms
+        all_classrooms = classrooms
         
         # Enhanced software detection with intelligent matching
         software_keywords = {
@@ -2718,19 +3061,16 @@ def get_rooms_by_software_smart(user_message, classrooms):
                 all_software_rooms.append(classroom)
                 software_lower = classroom.software.lower()
                 
-                # Check availability in real-time
-                try:
-                    is_available_now = not db.session.query(Schedule).filter(
-                        Schedule.classroom_id == classroom.id,
-                        Schedule.start_date <= current_date_sp,
-                        Schedule.end_date >= current_date_sp,
-                        Schedule.day_of_week == current_weekday_sp,
-                        Schedule.start_time.cast(db.Integer) <= current_hour_sp,
-                        Schedule.end_time.cast(db.Integer) > current_hour_sp
-                    ).first()
-                except:
-                    # Fallback if casting fails
-                    is_available_now = True
+                # Check availability using provided schedules
+                is_available_now = not any(
+                    s.classroom_id == classroom.id and
+                    s.start_date <= current_date_sp and
+                    s.end_date >= current_date_sp and
+                    s.day_of_week == current_weekday_sp and
+                    int(s.start_time) <= current_hour_sp and
+                    int(s.end_time) > current_hour_sp
+                    for s in schedules
+                )
                 
                 # Check if any mentioned software is in this classroom
                 for software_type in mentioned_software:
@@ -2860,8 +3200,8 @@ def get_rooms_capacity_info_smart(classrooms):
         current_hour_sp = current_sp_time.hour
         current_weekday_sp = current_sp_time.weekday()
         
-        # Query all classrooms with real data
-        all_classrooms = db.session.query(Classroom).all()
+        # Use provided classrooms
+        all_classrooms = classrooms
         
         if not all_classrooms:
             return "😅 Ops! Não encontrei informações sobre as salas. Tente novamente! 🤗"
@@ -2873,25 +3213,18 @@ def get_rooms_capacity_info_smart(classrooms):
         
         for room in all_classrooms:
             if hasattr(room, 'capacity') and room.capacity:
-                # Check current availability
-                try:
-                    is_available_now = not db.session.query(Schedule).filter(
-                        Schedule.classroom_id == room.id,
-                        Schedule.start_date <= current_date_sp,
-                        Schedule.end_date >= current_date_sp,
-                        Schedule.day_of_week == current_weekday_sp,
-                        Schedule.start_time.cast(db.Integer) <= current_hour_sp,
-                        Schedule.end_time.cast(db.Integer) > current_hour_sp
-                    ).first()
-                except:
-                    is_available_now = True
-                
-                # Calculate weekly usage (how many hours per week this room is scheduled)
-                weekly_usage = db.session.query(Schedule).filter(
-                    Schedule.classroom_id == room.id,
-                    Schedule.start_date <= current_date_sp,
-                    Schedule.end_date >= current_date_sp
-                ).count()
+                # Check current availability using provided schedules
+                is_available_now = not any(
+                    s.classroom_id == room.id and
+                    s.start_date <= current_date_sp and
+                    s.end_date >= current_date_sp and
+                    s.day_of_week == current_weekday_sp and
+                    int(s.start_time) <= current_hour_sp and
+                    int(s.end_time) > current_hour_sp
+                    for s in schedules
+                )
+                # Calculate weekly usage using provided schedules
+                weekly_usage = len([s for s in schedules if (s.classroom_id == room.id and s.start_date <= current_date_sp and s.end_date >= current_date_sp)])
                 
                 room_data = (room, is_available_now, weekly_usage)
                 
@@ -3045,9 +3378,10 @@ def get_schedule_info(classrooms, schedules):
     
     return response
 
-def get_general_help_response():
+def get_general_help_response(active_school=None):
     """Return general help information with personality"""
-    return """🤖 **Oi! Sou seu assistente virtual do SENAI Morvan Figueiredo! 😊**
+    school_name = active_school.name if active_school else "SENAI"
+    return f"""🤖 **Oi! Sou seu assistente virtual do {school_name}! 😊**
 
 Estou aqui para te ajudar com tudo sobre nossas salas e laboratórios. Sou bem esperto e converso naturalmente - não precisa usar comandos específicos! 🗣️
 
@@ -3079,58 +3413,55 @@ Estou aqui para te ajudar com tudo sobre nossas salas e laboratórios. Sou bem e
 
 **🤝 Estou sempre aprendendo!** Se não entender alguma coisa, me explique de outra forma que eu vou me adaptar! 🧠✨"""
 
-def get_analytics_and_trends(classrooms, schedules, current_time):
-    """Return comprehensive analytics and trends from real database data"""
+def get_analytics_and_trends_smart(classrooms, schedules, incidents, current_time):
+    """Return comprehensive analytics and trends from provided data"""
     try:
-        from models import Classroom, Schedule, Incident
-        from app import db
-        from datetime import datetime, date, timedelta
-        import pytz
-        from collections import defaultdict
+        # current_time is already sp_time passed from parent
+        current_date_sp = current_time.date()
+        current_weekday_sp = current_time.weekday()
         
-        # Get real-time data
-        sp_tz = pytz.timezone('America/Sao_Paulo')
-        current_sp_time = datetime.now(sp_tz)
-        current_date_sp = current_sp_time.date()
-        current_weekday_sp = current_sp_time.weekday()
+        # Data lists are already filtered by school
+        total_rooms = len(classrooms)
+        total_schedules = len(schedules)
+        total_incidents = len(incidents)
         
-        # Query comprehensive data
-        all_classrooms = db.session.query(Classroom).all()
-        all_schedules = db.session.query(Schedule).all()
-        all_incidents = db.session.query(Incident).all()
-        
-        # Analytics calculations
-        total_rooms = len(all_classrooms)
-        total_schedules = len(all_schedules)
-        total_incidents = len(all_incidents)
-        
-        response = f"📊 **Análise Completa do Sistema SENAI - {current_sp_time.strftime('%d/%m/%Y %H:%M')}**\n\n"
+        if total_rooms == 0:
+            return "📊 No momento não temos dados suficientes para gerar uma análise. Cadastre algumas salas primeiro! 😊"
+            
+        response = f"📊 **Análise Completa do Sistema - {current_time.strftime('%d/%m/%Y %H:%M')}**\n\n"
         
         # === OCCUPANCY ANALYSIS ===
-        weekday_usage = defaultdict(int)
-        hour_usage = defaultdict(int)
-        room_popularity = defaultdict(int)
+        weekday_usage = {}
+        hour_usage = {}
+        room_popularity = {}
         
-        for schedule in all_schedules:
-            if hasattr(schedule, 'weekday') and hasattr(schedule, 'start_time'):
-                weekday_usage[schedule.weekday] += 1
-                hour_usage[schedule.start_time] += 1
-                if hasattr(schedule, 'classroom_id'):
-                    room_popularity[schedule.classroom_id] += 1
+        for schedule in schedules:
+            w = schedule.day_of_week
+            weekday_usage[w] = weekday_usage.get(w, 0) + 1
+            
+            try:
+                h = int(schedule.start_time)
+                hour_usage[h] = hour_usage.get(h, 0) + 1
+            except:
+                pass
+            
+            rid = schedule.classroom_id
+            room_popularity[rid] = room_popularity.get(rid, 0) + 1
         
         # Current availability analysis
         currently_occupied = 0
         currently_available = 0
         
-        for classroom in all_classrooms:
-            is_occupied = db.session.query(Schedule).filter(
-                Schedule.classroom_id == classroom.id,
-                Schedule.start_date <= current_date_sp,
-                Schedule.end_date >= current_date_sp,
-                Schedule.day_of_week == current_weekday_sp,
-                Schedule.start_time <= current_sp_time.hour,
-                Schedule.end_time > current_sp_time.hour
-            ).first()
+        for classroom in classrooms:
+            is_occupied = any(
+                s.classroom_id == classroom.id and
+                s.start_date <= current_date_sp and
+                s.end_date >= current_date_sp and
+                s.day_of_week == current_weekday_sp and
+                int(s.start_time) <= current_time.hour and
+                int(s.end_time) > current_time.hour
+                for s in schedules
+            )
             
             if is_occupied:
                 currently_occupied += 1
@@ -3141,134 +3472,53 @@ def get_analytics_and_trends(classrooms, schedules, current_time):
         response += "🎯 **Status Atual do Sistema:**\n"
         response += f"• **Ocupação em tempo real:** {currently_occupied}/{total_rooms} salas ({(currently_occupied/total_rooms)*100:.1f}%)\n"
         response += f"• **Disponibilidade:** {currently_available} salas livres\n"
-        response += f"• **Total de agendamentos:** {total_schedules} horários cadastrados\n"
+        response += f"• **Total de agendamentos:** {total_schedules} horários ativos\n"
         response += f"• **Incidentes registrados:** {total_incidents} ocorrências\n\n"
         
         # === USAGE PATTERNS ===
-        response += "📈 **Padrões de Uso Inteligente:**\n"
+        response += "📈 **Padrões de Uso:**\n"
         
-        # Busiest day
         if weekday_usage:
             days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
             busiest_day_num = max(weekday_usage.keys(), key=lambda x: weekday_usage[x])
-            busiest_day_count = weekday_usage[busiest_day_num]
-            response += f"• **Dia mais movimentado:** {days[busiest_day_num]} ({busiest_day_count} agendamentos)\n"
+            response += f"• **Dia mais movimentado:** {days[busiest_day_num]}\n"
         
-        # Peak hours
         if hour_usage:
             peak_hour = max(hour_usage.keys(), key=lambda x: hour_usage[x])
-            peak_count = hour_usage[peak_hour]
-            response += f"• **Horário de pico:** {peak_hour:02d}:00 ({peak_count} salas em uso)\n"
+            response += f"• **Horário de pico:** {peak_hour:02d}:00\n"
         
-        # Most popular rooms
         if room_popularity:
-            most_used_room_id = max(room_popularity.keys(), key=lambda x: room_popularity[x])
-            most_used_room = next((room for room in all_classrooms if room.id == most_used_room_id), None)
+            most_used_id = max(room_popularity.keys(), key=lambda x: room_popularity[x])
+            most_used_room = next((r for r in classrooms if r.id == most_used_id), None)
             if most_used_room:
-                usage_count = room_popularity[most_used_room_id]
-                response += f"• **Sala mais utilizada:** {most_used_room.name} ({usage_count} agendamentos)\n"
+                response += f"• **Sala mais utilizada:** {most_used_room.name}\n"
         
         response += "\n"
         
-        # === CAPACITY OPTIMIZATION ===
-        total_capacity = sum(room.capacity for room in all_classrooms if hasattr(room, 'capacity'))
-        avg_capacity = total_capacity / total_rooms if total_rooms else 0
+        # === CAPACITY ===
+        total_capacity = sum(room.capacity for room in classrooms if hasattr(room, 'capacity'))
+        response += "🏗️ **Espaços:**\n"
+        response += f"• **Capacidade total:** {total_capacity} pessoas\n"
         
-        response += "🏗️ **Otimização de Espaços:**\n"
-        response += f"• **Capacidade total:** {total_capacity} pessoas simultaneamente\n"
-        response += f"• **Capacidade média:** {avg_capacity:.0f} pessoas por sala\n"
+        # === TECHNOLOGY ===
+        rooms_with_computers = sum(1 for room in classrooms if getattr(room, 'has_computers', False))
+        response += f"• **Salas informatizadas:** {rooms_with_computers}/{total_rooms}\n\n"
         
-        # Calculate efficiency
-        peak_usage_percent = (currently_occupied / total_rooms) * 100 if total_rooms else 0
-        if peak_usage_percent < 60:
-            efficiency = "🟢 Eficiente - Boa disponibilidade"
-        elif peak_usage_percent < 80:
-            efficiency = "🟡 Moderada - Ocupação balanceada"
-        else:
-            efficiency = "🔴 Alta demanda - Considere expansão"
-            
-        response += f"• **Eficiência atual:** {efficiency}\n\n"
-        
-        # === TECHNOLOGY INSIGHTS ===
-        rooms_with_computers = sum(1 for room in all_classrooms if hasattr(room, 'has_computers') and room.has_computers)
-        rooms_with_software = sum(1 for room in all_classrooms if hasattr(room, 'software') and room.software)
-        
-        response += "💻 **Análise Tecnológica:**\n"
-        response += f"• **Salas informatizadas:** {rooms_with_computers}/{total_rooms} ({(rooms_with_computers/total_rooms)*100:.0f}%)\n"
-        response += f"• **Salas com software especializado:** {rooms_with_software}/{total_rooms}\n"
-        
-        # Software distribution
-        software_count = defaultdict(int)
-        for room in all_classrooms:
-            if hasattr(room, 'software') and room.software:
-                # Count main software types
-                if 'unity' in room.software.lower():
-                    software_count['Unity'] += 1
-                if 'blender' in room.software.lower():
-                    software_count['Blender'] += 1
-                if 'visual studio' in room.software.lower():
-                    software_count['Visual Studio'] += 1
-        
-        if software_count:
-            response += "• **Software mais comum:** "
-            top_software = max(software_count.keys(), key=lambda x: software_count[x])
-            response += f"{top_software} ({software_count[top_software]} salas)\n"
-        
-        response += "\n"
-        
-        # === MAINTENANCE INSIGHTS ===
-        if total_incidents > 0:
-            response += "🔧 **Análise de Manutenção:**\n"
-            response += f"• **Total de incidentes:** {total_incidents} registros\n"
-            response += f"• **Média de incidentes:** {total_incidents/total_rooms:.1f} por sala\n"
-            
-            # Most problematic rooms
-            incident_count = defaultdict(int)
-            for incident in all_incidents:
-                if hasattr(incident, 'classroom_id'):
-                    incident_count[incident.classroom_id] += 1
-            
-            if incident_count:
-                problematic_room_id = max(incident_count.keys(), key=lambda x: incident_count[x])
-                problematic_room = next((room for room in all_classrooms if room.id == problematic_room_id), None)
-                if problematic_room:
-                    response += f"• **Sala que requer atenção:** {problematic_room.name} ({incident_count[problematic_room_id]} incidentes)\n"
-            response += "\n"
-        
-        # === PREDICTIONS AND RECOMMENDATIONS ===
-        response += "🔮 **Insights e Recomendações:**\n"
-        
-        if peak_usage_percent > 80:
-            response += "• ⚠️ **Alta demanda detectada** - Considere otimizar horários\n"
-        elif peak_usage_percent < 40:
-            response += "• 💡 **Baixa ocupação** - Oportunidade para novos cursos\n"
-        
-        if currently_available > currently_occupied:
-            response += "• ✅ **Boa disponibilidade** - Momento ideal para reservas\n"
-        
-        # Time-based recommendations
-        current_hour = current_sp_time.hour
-        if 8 <= current_hour <= 10:
-            response += "• 🌅 **Período matutino** - Horário de menor demanda\n"
-        elif 14 <= current_hour <= 16:
-            response += "• 🌞 **Período vespertino** - Pico de atividades\n"
-        elif 19 <= current_hour <= 21:
-            response += "• 🌆 **Período noturno** - Alta demanda por cursos\n"
-        
-        response += f"\n🔄 **Análise atualizada automaticamente - Última atualização: {current_sp_time.strftime('%H:%M:%S')}**"
-        response += f"\n💡 **Dados baseados em {total_schedules} agendamentos e {total_incidents} registros históricos**"
+        response += "🎯 **Recomendações:**\n"
+        response += "  • Verifique horários de pico para evitar salas cheias\n"
+        response += "  • Utilize o sistema para reservas antecipadas"
         
         return response
         
     except Exception as e:
         import logging
-        logging.error(f"Error in get_analytics_and_trends: {str(e)}")
-        # Always provide some useful analytics info
-        return get_analytics_and_trends_smart(classrooms, schedules, current_time)
+        logging.error(f"Error in get_analytics_and_trends_smart: {str(e)}")
+        return "📊 **Sistema SENAI**\nInterface de análise disponível. Entre em contato para relatórios detalhados! 📞"
 
-def get_contact_info():
+def get_contact_info(active_school=None):
     """Return contact information"""
-    return """📞 **Informações de Contato - SENAI Morvan Figueiredo:**
+    school_name = active_school.name if active_school else "SENAI"
+    return f"""📞 **Informações de Contato - {school_name}:**
 
 🏢 **Endereço:**
 SENAI "Morvan Figueiredo" - CFP 1.03
@@ -3291,9 +3541,10 @@ Este assistente virtual pode ajudar com informações sobre:
 
 Para dúvidas administrativas, procure a secretaria presencialmente! 😊"""
 
-def get_about_senai_info():
+def get_about_senai_info(active_school=None):
     """Return information about SENAI"""
-    return """🏫 **Sobre o SENAI Morvan Figueiredo:**
+    school_name = active_school.name if active_school else "SENAI"
+    return f"""🏫 **Sobre o {school_name}:**
 
 📚 **O que é o SENAI:**
 O Serviço Nacional de Aprendizagem Industrial (SENAI) é a principal rede de educação profissional do país, oferecendo cursos técnicos e de qualificação profissional.
@@ -3452,13 +3703,10 @@ Estou aqui para te ajudar! ✨"""
 
 # ========= NEW INTELLIGENT FUNCTIONS - NO MORE GENERIC ERRORS =========
 
-def get_rooms_location_info_smart(classrooms):
+def get_rooms_location_info_smart(classrooms, active_school=None):
     """Return location information about classrooms with smart handling"""
-    from models import Classroom
-    from app import db
-    
     try:
-        all_classrooms = db.session.query(Classroom).all()
+        all_classrooms = classrooms
         if not all_classrooms:
             return "🏢 **SENAI Morvan Figueiredo**\nEntre em contato com a secretaria para informações sobre localização das salas! 📞"
         
@@ -3481,7 +3729,8 @@ def get_rooms_location_info_smart(classrooms):
                 response += "\n"
             response += "\n"
         
-        response += "📍 **Endereço:** SENAI Morvan Figueiredo\n"
+        school_name = active_school.name if active_school else "SENAI"
+        response += f"📍 **Endereço:** {school_name}\n"
         response += "💬 **Contato:** Solicite no sistema para orientações detalhadas"
         response += get_question_menu()
         
@@ -3490,7 +3739,8 @@ def get_rooms_location_info_smart(classrooms):
     except Exception as e:
         import logging
         logging.error(f"Error in get_rooms_location_info_smart: {str(e)}")
-        return "🗺️ **Localização:** As salas estão distribuídas em diferentes blocos do SENAI Morvan Figueiredo. Entre em contato com a secretaria para localização exata! 📞"
+        school_name = active_school.name if active_school else "SENAI"
+        return f"🗺️ **Localização:** As salas estão distribuídas em diferentes blocos do {school_name}. Entre em contato com a secretaria para localização exata! 📞"
 
 def get_schedule_info_smart(classrooms, schedules):
     """Return schedule information with smart handling"""
@@ -3545,57 +3795,13 @@ def get_schedule_info_smart(classrooms, schedules):
         logging.error(f"Error in get_schedule_info_smart: {str(e)}")
         return "📅 **Horários de Funcionamento:**\nSegunda a Sexta: 7h30-22h | Sábado: 7h30-12h\n📞 Entre em contato com a secretaria para agendamentos!"
 
-def get_analytics_and_trends_smart(classrooms, schedules, current_time):
-    """Return analytics with smart handling"""
-    from datetime import datetime
-    import pytz
-    
-    try:
-        sp_tz = pytz.timezone('America/Sao_Paulo')
-        current_sp_time = datetime.now(sp_tz)
-        
-        total_rooms = len(classrooms) if classrooms else 0
-        total_capacity = sum(room.capacity for room in classrooms if hasattr(room, 'capacity')) if classrooms else 0
-        rooms_with_computers = len([r for r in classrooms if hasattr(r, 'has_computers') and r.has_computers]) if classrooms else 0
-        
-        response = f"📊 **Análise do Sistema - {current_sp_time.strftime('%d/%m/%Y às %H:%M')}:**\n\n"
-        response += f"🏫 **Estrutura Geral:**\n"
-        response += f"  • Total de salas: **{total_rooms}**\n"
-        response += f"  • Capacidade total: **{total_capacity} pessoas**\n"
-        response += f"  • Salas com computadores: **{rooms_with_computers}**\n\n"
-        
-        if classrooms:
-            # Capacity distribution
-            small = len([r for r in classrooms if hasattr(r, 'capacity') and r.capacity <= 20])
-            medium = len([r for r in classrooms if hasattr(r, 'capacity') and 21 <= r.capacity <= 35])
-            large = len([r for r in classrooms if hasattr(r, 'capacity') and r.capacity > 35])
-            
-            response += "📈 **Distribuição por Tamanho:**\n"
-            response += f"  • Pequenas (até 20): **{small} salas**\n"
-            response += f"  • Médias (21-35): **{medium} salas**\n"
-            response += f"  • Grandes (36+): **{large} salas**\n\n"
-        
-        active_schedules = len(schedules) if schedules else 0
-        response += f"🗂️ **Agendamentos:** {active_schedules} atividades programadas\n\n"
-        
-        response += "🎯 **Recomendações:**\n"
-        response += "  • Consulte disponibilidade em tempo real\n"
-        response += "  • Reserve com antecedência para garantir vaga\n"
-        response += "  • Considere horários alternativos se necessário"
-        response += get_question_menu()
-        
-        return response
-        
-    except Exception as e:
-        import logging
-        logging.error(f"Error in get_analytics_and_trends_smart: {str(e)}")
-        return f"📊 **Sistema SENAI Morvan Figueiredo:**\nTotal de salas disponíveis para consulta\n📞 Entre em contato para mais detalhes sobre ocupação e agendamentos!"
 
 def get_basic_classroom_info(classrooms):
     """Return basic classroom information as fallback"""
     try:
         if not classrooms:
-            return "🏫 **Sistema SENAI Morvan Figueiredo**\nEntre em contato com a secretaria para informações sobre as salas! 📞"
+            school_name = active_school.name if active_school else "SENAI"
+            return f"🏫 **Sistema {school_name}**\nEntre em contato com a secretaria para informações sobre as salas! 📞"
         
         total_rooms = len(classrooms)
         total_capacity = sum(room.capacity for room in classrooms if hasattr(room, 'capacity'))
@@ -3619,7 +3825,8 @@ def get_basic_classroom_info(classrooms):
         return response
         
     except Exception:
-        return "🏫 **SENAI Morvan Figueiredo**\nSistema de salas disponível. Entre em contato com a secretaria! 📞"
+        school_name = active_school.name if active_school else "SENAI"
+        return f"🏫 **{school_name}**\nSistema de salas disponível. Entre em contato com a secretaria! 📞"
 
 def get_all_software_options(classrooms):
     """Return all available software options as fallback"""
@@ -3671,7 +3878,7 @@ def get_question_menu():
     """Generate a short menu of questions the user can ask"""
     return "\n\n❓ **Mais ajuda?** Pergunte sobre salas, software ou horários!"
 
-def get_emergency_helpful_response(user_message, classrooms):
+def get_emergency_helpful_response(user_message, classrooms, active_school=None):
     """Emergency fallback that always provides something useful"""
     from datetime import datetime
     import pytz
@@ -3681,7 +3888,8 @@ def get_emergency_helpful_response(user_message, classrooms):
     
     total_rooms = len(classrooms) if classrooms else 0
     
-    return f"""🤖 **Olá! Sou o assistente do SENAI Morvan Figueiredo! 😊**
+    school_name = active_school.name if active_school else "SENAI"
+    return f"""🤖 **Olá! Sou o assistente do {school_name}! 😊**
 
 Percebi que você disse: *"{user_message}"*
 

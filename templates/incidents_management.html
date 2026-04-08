@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Painel de Ocorrências - SENAI Morvan Figueiredo{% endblock %}
+{% block title %}Painel de Ocorrências - {{ session.get('active_school_name', 'SENAI') }}{% endblock %}
 
 {% block content %}
 <div class="container">
@@ -123,13 +123,13 @@
                                             <small class="text-muted">{{ incident.reporter_email }}</small>
                                         </div>
                                     </td>
-                                    <td>{{ incident.created_at.strftime('%d/%m/%Y às %H:%M') if incident.created_at else '' }}</td>
+                                    <td>{{ incident.created_at.strftime('%d/%m/%Y às %H:%M') if incident.created_at and incident.created_at.__class__.__name__ == 'datetime' else (incident.created_at[:16] if incident.created_at else '') }}</td>
                                     <td>
                                         {% if incident.admin_response %}
                                             <div style="max-width: 200px;">
                                                 <small class="text-success">{{ incident.admin_response[:100] }}{% if incident.admin_response|length > 100 %}...{% endif %}</small>
                                                 {% if incident.response_date %}
-                                                <br><small class="text-muted">{{ incident.response_date.strftime('%d/%m/%Y') }}</small>
+                                                <small class="text-muted">{{ incident.response_date.strftime('%d/%m/%Y') if incident.response_date and incident.response_date.__class__.__name__ == 'datetime' else (incident.response_date[:10] if incident.response_date else '') }}</small>
                                                 {% endif %}
                                             </div>
                                         {% else %}
@@ -223,7 +223,7 @@
                         <h6><i class="fas fa-comment me-2"></i>Resposta Anterior</h6>
                         <div class="bg-info bg-opacity-10 p-3 rounded mb-3">
                             <p>{{ incident.admin_response }}</p>
-                            <small class="text-muted">Respondido em: {{ incident.response_date.strftime('%d/%m/%Y às %H:%M') if incident.response_date else '' }}</small>
+                            <small class="text-muted">Respondido em: {{ incident.response_date.strftime('%d/%m/%Y às %H:%M') if incident.response_date and incident.response_date.__class__.__name__ == 'datetime' else (incident.response_date[:16] if incident.response_date else '') }}</small>
                         </div>
                     </div>
                     {% endif %}
